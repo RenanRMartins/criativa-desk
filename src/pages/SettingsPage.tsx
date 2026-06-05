@@ -80,13 +80,28 @@ export default function SettingsPage() {
     }
   }, [activeProject])
 
+  const OAUTH_NETWORKS: Record<string, string> = {
+    youtube: 'google',
+    google_business: 'google',
+    linkedin: 'linkedin',
+    facebook: 'meta',
+    instagram: 'meta',
+    tiktok: 'tiktok',
+  }
+
   async function connectNetwork(networkId: string) {
     if (!activeProject) return
+    const provider = OAUTH_NETWORKS[networkId]
+    if (!provider) return
     setConnectingNetwork(networkId)
     try {
-      const { url } = await api.get<{ url: string }>(
-        `/social/google/auth-url?network=${networkId.toUpperCase()}&projectId=${activeProject.id}`
-      )
+      let endpoint = ''
+      if (provider === 'google') {
+        endpoint = `/social/google/auth-url?network=${networkId.toUpperCase()}&projectId=${activeProject.id}`
+      } else {
+        endpoint = `/social/${provider}/auth-url?projectId=${activeProject.id}`
+      }
+      const { url } = await api.get<{ url: string }>(endpoint)
       window.location.href = url
     } catch {
       setConnectingNetwork(null)
@@ -252,7 +267,7 @@ export default function SettingsPage() {
               <div className="space-y-3">
                 {NETWORK_LIST.map(net => {
                   const account = connectedAccounts.find(a => a.provider === net.id.toUpperCase())
-                  const isGoogleNetwork = net.id === 'youtube' || net.id === 'google_business'
+                  const isSupported = net.id in OAUTH_NETWORKS
                   const isConnecting = connectingNetwork === net.id
 
                   return (
@@ -277,13 +292,13 @@ export default function SettingsPage() {
                         </button>
                       ) : (
                         <button
-                          onClick={() => isGoogleNetwork ? connectNetwork(net.id) : undefined}
-                          disabled={!isGoogleNetwork || isConnecting}
+                          onClick={() => isSupported ? connectNetwork(net.id) : undefined}
+                          disabled={!isSupported || isConnecting}
                           className="px-4 py-2 rounded-xl text-sm font-medium cursor-pointer border transition-colors hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                           style={{ borderColor: 'var(--color-gray-border)' }}
-                          title={!isGoogleNetwork ? 'Em breve' : undefined}>
+                          title={!isSupported ? 'Em breve' : undefined}>
                           {isConnecting ? <Loader2 size={13} className="animate-spin" /> : null}
-                          {isGoogleNetwork ? 'Conectar' : 'Em breve'}
+                          {isSupported ? 'Conectar' : 'Em breve'}
                         </button>
                       )}
                     </div>

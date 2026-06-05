@@ -112,6 +112,71 @@ router.get('/google/callback', async (req: Request, res: Response) => {
   }
 })
 
+// ─── LINKEDIN ────────────────────────────────────────────────────────────────
+
+const LI_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/social/linkedin/callback`
+
+router.get('/linkedin/auth-url', authMiddleware, (req: AuthRequest, res: Response) => {
+  const projectId = req.query.projectId as string
+  if (!projectId) { res.status(400).json({ message: 'projectId obrigatório' }); return }
+
+  const state = Buffer.from(JSON.stringify({ projectId, userId: req.userId })).toString('base64url')
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: process.env['LI_ID'] ?? '',
+    redirect_uri: LI_REDIRECT,
+    scope: 'openid profile email',
+    state,
+  })
+  res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?${params}` })
+})
+
+router.get('/linkedin/callback', async (req: Request, res: Response) => {
+  const { code, state, error } = req.query as Record<string, string>
+  const frontend = process.env.FRONTEND_URL ?? 'http://localhost:3000'
+  if (error || !code || !state) { res.redirect(`${frontend}/settings?oauth_error=cancelled`); return }
+
+  try {
+    const { projectId, userId } = JSON.parse(Buffer.from(state, 'base64url').toString())
+
+    const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: LI_REDIRECT,
+        client_id: process.env['LI_ID'] ?? '',
+        client_secret: process.env['LI_SEC'] ?? '',
+      }),
+    })
+    const tokenData = await tokenRes.json() as Record<string, string>
+    const accessToken = tokenData.access_token
+
+    const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    const profile = await profileRes.json() as Record<string, string>
+
+    await prisma.socialAccount.deleteMany({ where: { projectId, provider: 'LINKEDIN' } })
+    await prisma.socialAccount.create({
+      data: {
+        projectId,
+        provider: 'LINKEDIN',
+        accessToken,
+        profileId: profile.sub ?? userId,
+        profileName: profile.name ?? 'LinkedIn',
+        profileAvatar: profile.picture,
+        status: 'CONNECTED',
+      },
+    })
+    res.redirect(`${frontend}/settings?oauth_success=linkedin`)
+  } catch (err) {
+    console.error('LinkedIn OAuth error:', err)
+    res.redirect(`${process.env.FRONTEND_URL ?? 'http://localhost:3000'}/settings?oauth_error=failed`)
+  }
+})
+
 // GET /api/social/accounts?projectId=xxx
 router.get('/accounts', authMiddleware, async (req: AuthRequest, res: Response) => {
   const { projectId } = req.query as { projectId: string }
