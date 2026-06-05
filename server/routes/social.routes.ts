@@ -177,6 +177,75 @@ router.get('/linkedin/callback', async (req: Request, res: Response) => {
   }
 })
 
+// ─── META (Facebook + Instagram) ─────────────────────────────────────────────
+
+const META_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/social/meta/callback`
+const META_SCOPES: Record<string, string> = {
+  FACEBOOK: 'public_profile,email,pages_show_list',
+  INSTAGRAM: 'public_profile,email,instagram_basic',
+}
+
+router.get('/meta/auth-url', authMiddleware, (req: AuthRequest, res: Response) => {
+  const network = (req.query.network as string ?? 'FACEBOOK').toUpperCase()
+  const projectId = req.query.projectId as string
+  if (!projectId) { res.status(400).json({ message: 'projectId obrigatório' }); return }
+
+  const state = Buffer.from(JSON.stringify({ network, projectId, userId: req.userId })).toString('base64url')
+  const params = new URLSearchParams({
+    client_id: process.env['META_ID'] ?? '',
+    redirect_uri: META_REDIRECT,
+    scope: META_SCOPES[network] ?? META_SCOPES.FACEBOOK,
+    response_type: 'code',
+    state,
+  })
+  res.json({ url: `https://www.facebook.com/v19.0/dialog/oauth?${params}` })
+})
+
+router.get('/meta/callback', async (req: Request, res: Response) => {
+  const { code, state, error } = req.query as Record<string, string>
+  const frontend = process.env.FRONTEND_URL ?? 'http://localhost:3000'
+  if (error || !code || !state) { res.redirect(`${frontend}/settings?oauth_error=cancelled`); return }
+
+  try {
+    const { network, projectId, userId } = JSON.parse(Buffer.from(state, 'base64url').toString())
+
+    const tokenRes = await fetch(
+      `https://graph.facebook.com/v19.0/oauth/access_token?` +
+      new URLSearchParams({
+        client_id: process.env['META_ID'] ?? '',
+        client_secret: process.env['META_SEC'] ?? '',
+        redirect_uri: META_REDIRECT,
+        code,
+      })
+    )
+    const tokenData = await tokenRes.json() as Record<string, string>
+    const accessToken = tokenData.access_token
+
+    const profileRes = await fetch(
+      `https://graph.facebook.com/me?fields=id,name,picture&access_token=${accessToken}`
+    )
+    const profile = await profileRes.json() as Record<string, unknown>
+
+    await prisma.socialAccount.deleteMany({ where: { projectId, provider: network as never } })
+    await prisma.socialAccount.create({
+      data: {
+        projectId,
+        provider: network as never,
+        accessToken,
+        profileId: (profile.id as string) ?? userId,
+        profileName: (profile.name as string) ?? network,
+        profileAvatar: (profile.picture as Record<string, unknown>)?.data
+          ? ((profile.picture as Record<string, Record<string, string>>).data.url) : undefined,
+        status: 'CONNECTED',
+      },
+    })
+    res.redirect(`${frontend}/settings?oauth_success=${network.toLowerCase()}`)
+  } catch (err) {
+    console.error('Meta OAuth error:', err)
+    res.redirect(`${process.env.FRONTEND_URL ?? 'http://localhost:3000'}/settings?oauth_error=failed`)
+  }
+})
+
 // GET /api/social/accounts?projectId=xxx
 router.get('/accounts', authMiddleware, async (req: AuthRequest, res: Response) => {
   const { projectId } = req.query as { projectId: string }

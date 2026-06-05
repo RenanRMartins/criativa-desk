@@ -96,8 +96,8 @@ export default function SettingsPage() {
     setConnectingNetwork(networkId)
     try {
       let endpoint = ''
-      if (provider === 'google') {
-        endpoint = `/social/google/auth-url?network=${networkId.toUpperCase()}&projectId=${activeProject.id}`
+      if (provider === 'google' || provider === 'meta') {
+        endpoint = `/social/${provider}/auth-url?network=${networkId.toUpperCase()}&projectId=${activeProject.id}`
       } else {
         endpoint = `/social/${provider}/auth-url?projectId=${activeProject.id}`
       }
