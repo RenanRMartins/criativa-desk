@@ -1,10 +1,19 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'motion/react'
 import { pageVariants } from '@/lib/motionVariants'
-import { User, Bell, Shield, CreditCard, Users, Link2, Check, Plus } from 'lucide-react'
+import { User, Bell, Shield, CreditCard, Users, Link2, Check, Plus, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useProjectStore } from '@/store/projectStore'
 import { getInitials } from '@/lib/utils'
+import { api } from '@/lib/api'
+
+interface ConnectedAccount {
+  id: string
+  provider: string
+  profileName: string
+  profileAvatar?: string
+  status: string
+}
 
 const TABS = [
   { id: 'profile',   label: 'Perfil',         icon: User       },
@@ -35,12 +44,59 @@ const NOTIF_PREFS = [
 export default function SettingsPage() {
   const { user } = useAuthStore()
   const { activeProject } = useProjectStore()
-  const [activeTab, setActiveTab] = useState('profile')
+  const [activeTab, setActiveTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('oauth_success') || params.get('oauth_error')) return 'networks'
+    return 'profile'
+  })
   const [name, setName] = useState(user?.name ?? '')
   const [saved, setSaved] = useState(false)
   const [notifPrefs, setNotifPrefs] = useState<Record<string, boolean>>(
     Object.fromEntries(NOTIF_PREFS.map(n => [n.id, true]))
   )
+  const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([])
+  const [connectingNetwork, setConnectingNetwork] = useState<string | null>(null)
+  const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const success = params.get('oauth_success')
+    const error = params.get('oauth_error')
+    if (success) {
+      setOauthMessage({ type: 'success', text: `${success.replace('_', ' ')} conectado com sucesso!` })
+      window.history.replaceState({}, '', '/settings')
+    } else if (error) {
+      setOauthMessage({ type: 'error', text: 'Erro ao conectar. Tente novamente.' })
+      window.history.replaceState({}, '', '/settings')
+    }
+    setTimeout(() => setOauthMessage(null), 4000)
+  }, [])
+
+  useEffect(() => {
+    if (activeProject) {
+      api.get<ConnectedAccount[]>(`/social/accounts?projectId=${activeProject.id}`)
+        .then(setConnectedAccounts)
+        .catch(() => setConnectedAccounts([]))
+    }
+  }, [activeProject])
+
+  async function connectNetwork(networkId: string) {
+    if (!activeProject) return
+    setConnectingNetwork(networkId)
+    try {
+      const { url } = await api.get<{ url: string }>(
+        `/social/google/auth-url?network=${networkId.toUpperCase()}&projectId=${activeProject.id}`
+      )
+      window.location.href = url
+    } catch {
+      setConnectingNetwork(null)
+    }
+  }
+
+  async function disconnectNetwork(accountId: string) {
+    await api.delete(`/social/accounts/${accountId}`)
+    setConnectedAccounts(prev => prev.filter(a => a.id !== accountId))
+  }
 
   function saveProfile() {
     setSaved(true)
@@ -182,29 +238,58 @@ export default function SettingsPage() {
                 </p>
               </div>
 
-              <div className="space-y-3">
-                {NETWORK_LIST.map(net => (
-                  <div key={net.id} className="flex items-center gap-3 p-4 rounded-xl border"
-                    style={{ borderColor: 'var(--color-gray-border)' }}>
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                      style={{ background: net.color }}>
-                      {net.tag}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{net.label}</p>
-                      <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>Não conectado</p>
-                    </div>
-                    <button className="px-4 py-2 rounded-xl text-sm font-medium cursor-pointer border transition-colors hover:bg-gray-50"
-                      style={{ borderColor: 'var(--color-gray-border)' }}>
-                      Conectar
-                    </button>
-                  </div>
-                ))}
-              </div>
+              {oauthMessage && (
+                <div className="flex items-center gap-2 px-4 py-3 rounded-xl mb-4 text-sm"
+                  style={{
+                    background: oauthMessage.type === 'success' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                    color: oauthMessage.type === 'success' ? '#10B981' : '#EF4444',
+                  }}>
+                  {oauthMessage.type === 'success' ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+                  {oauthMessage.text}
+                </div>
+              )}
 
-              <p className="text-xs mt-4" style={{ color: 'var(--color-gray-text)' }}>
-                OAuth real disponível na próxima versão. Use <code className="px-1 rounded" style={{ background: 'var(--color-gray-light)' }}>SOCIAL_MOCK_MODE=true</code> para publicar via mock.
-              </p>
+              <div className="space-y-3">
+                {NETWORK_LIST.map(net => {
+                  const account = connectedAccounts.find(a => a.provider === net.id.toUpperCase())
+                  const isGoogleNetwork = net.id === 'youtube' || net.id === 'google_business'
+                  const isConnecting = connectingNetwork === net.id
+
+                  return (
+                    <div key={net.id} className="flex items-center gap-3 p-4 rounded-xl border"
+                      style={{ borderColor: account ? 'rgba(16,185,129,0.3)' : 'var(--color-gray-border)' }}>
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                        style={{ background: net.color }}>
+                        {net.tag}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{net.label}</p>
+                        <p className="text-xs truncate" style={{ color: account ? '#10B981' : 'var(--color-gray-text)' }}>
+                          {account ? `✓ ${account.profileName}` : 'Não conectado'}
+                        </p>
+                      </div>
+                      {account ? (
+                        <button
+                          onClick={() => disconnectNetwork(account.id)}
+                          className="px-4 py-2 rounded-xl text-xs cursor-pointer border transition-colors hover:bg-red-50"
+                          style={{ borderColor: '#EF4444', color: '#EF4444' }}>
+                          Desconectar
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => isGoogleNetwork ? connectNetwork(net.id) : undefined}
+                          disabled={!isGoogleNetwork || isConnecting}
+                          className="px-4 py-2 rounded-xl text-sm font-medium cursor-pointer border transition-colors hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                          style={{ borderColor: 'var(--color-gray-border)' }}
+                          title={!isGoogleNetwork ? 'Em breve' : undefined}>
+                          {isConnecting ? <Loader2 size={13} className="animate-spin" /> : null}
+                          {isGoogleNetwork ? 'Conectar' : 'Em breve'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
 

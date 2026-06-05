@@ -14,6 +14,7 @@ import schedulingRoutes from './routes/scheduling.routes'
 import trenddeskRoutes from './routes/trenddesk.routes'
 import searchdeskRoutes from './routes/searchdesk.routes'
 import uploadRoutes from './routes/upload.routes'
+import socialRoutes from './routes/social.routes'
 
 const app = express()
 const PORT = process.env.PORT ?? 4000
@@ -37,6 +38,7 @@ app.use('/api/scheduling', schedulingRoutes)
 app.use('/api/trenddesk', trenddeskRoutes)
 app.use('/api/searchdesk', searchdeskRoutes)
 app.use('/api/upload', uploadRoutes)
+app.use('/api/social', socialRoutes)
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISOString() }))
 
