@@ -9,8 +9,8 @@ const REDIRECT_URI = `${process.env.BACKEND_URL ?? 'https://criativa-desk-produc
 
 function oauthClient() {
   return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
+    process.env['GOOGLE_CLIENT_ID'],
+    process.env['GOOGLE_CLIENT_SECRET'],
     REDIRECT_URI,
   )
 }
