@@ -112,7 +112,7 @@ function PostDrawer({ post, onClose }: { post: Post; onClose: () => void }) {
 
 export default function CalendarPage() {
   const { activeProject } = useProjectStore()
-  const { posts, setPosts, fetchPosts } = usePosts(activeProject?.id)
+  const { posts, setPosts, fetchPosts, createPost } = usePosts(activeProject?.id)
   const [selectedPost, setSelectedPost] = useState<Post | null>(null)
   const [date, setDate] = useState(new Date())
   const [view, setView] = useState<'month' | 'week' | 'day'>('month')
@@ -288,6 +288,22 @@ export default function CalendarPage() {
         open={creatorOpen}
         onClose={() => { setCreatorOpen(false); setClickedDate(undefined) }}
         defaultDate={clickedDate}
+        onSave={async (data) => {
+          if (!activeProject) return
+          await createPost({
+            projectId: activeProject.id,
+            title: data.title,
+            format: data.format as Post['format'],
+            networks: (data.networks ?? []) as Post['networks'],
+            status: (data.status ?? 'IDEA') as Post['status'],
+            caption: data.caption,
+            hashtags: data.hashtags ? data.hashtags.split(/\s+/).filter(Boolean) : [],
+            publishDate: data.publishDate || undefined,
+            theme: data.theme,
+            observations: data.observations,
+          })
+          fetchPosts()
+        }}
       />
     </motion.div>
   )

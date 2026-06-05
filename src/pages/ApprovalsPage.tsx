@@ -13,7 +13,7 @@ const card = { initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 } }
 const TABS = ['Pendentes', 'Aprovados', 'Com ajustes', 'Todos']
 
 export default function ApprovalsPage() {
-  const { posts, fetchPosts } = usePosts()
+  const { posts, fetchPosts, updatePost } = usePosts()
   const [activeTab, setActiveTab] = useState('Pendentes')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -158,12 +158,14 @@ export default function ApprovalsPage() {
                       {post.status === 'PENDING_APPROVAL' && (
                         <>
                           <button
+                            onClick={() => updatePost(post.id, { status: 'APPROVED' })}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium cursor-pointer transition-all hover:opacity-90"
                             style={{ background: '#10B981', color: 'white' }}
                           >
                             <CheckCircle2 size={12} /> Aprovar
                           </button>
                           <button
+                            onClick={() => updatePost(post.id, { status: 'CHANGES_REQUESTED' })}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium cursor-pointer transition-all hover:opacity-90"
                             style={{ background: '#EF4444', color: 'white' }}
                           >
