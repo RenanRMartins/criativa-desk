@@ -181,8 +181,8 @@ router.get('/linkedin/callback', async (req: Request, res: Response) => {
 
 const META_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/social/meta/callback`
 const META_SCOPES: Record<string, string> = {
-  FACEBOOK: 'public_profile,email,pages_show_list',
-  INSTAGRAM: 'public_profile,email,instagram_basic',
+  FACEBOOK: 'public_profile',
+  INSTAGRAM: 'public_profile',
 }
 
 router.get('/meta/auth-url', authMiddleware, (req: AuthRequest, res: Response) => {
