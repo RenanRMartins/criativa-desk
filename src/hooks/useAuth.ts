@@ -40,19 +40,22 @@ export function useAuth() {
 
   const signIn = useCallback(
     async (email: string, password: string) => {
-      // Demo mode — sem backend necessário
-      if (DEMO_USERS[email] && DEMO_PASSWORDS[email] === password) {
-        const demoUser = DEMO_USERS[email]
-        login(demoUser)
-        return demoUser
+      // Tenta backend real primeiro; fallback para demo se offline
+      try {
+        const data = await api.post<{ user: AuthUser; token: string }>('/auth/login', {
+          email,
+          password,
+        })
+        login({ ...data.user, token: data.token })
+        return data.user
+      } catch {
+        if (DEMO_USERS[email] && DEMO_PASSWORDS[email] === password) {
+          const demoUser = DEMO_USERS[email]
+          login(demoUser)
+          return demoUser
+        }
+        throw new Error('Credenciais inválidas')
       }
-      // Backend real
-      const data = await api.post<{ user: AuthUser; token: string }>('/auth/login', {
-        email,
-        password,
-      })
-      login({ ...data.user, token: data.token })
-      return data.user
     },
     [login]
   )
