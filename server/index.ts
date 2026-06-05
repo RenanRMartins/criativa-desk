@@ -13,6 +13,7 @@ import videoTasksRoutes from './routes/video-tasks.routes'
 import schedulingRoutes from './routes/scheduling.routes'
 import trenddeskRoutes from './routes/trenddesk.routes'
 import searchdeskRoutes from './routes/searchdesk.routes'
+import uploadRoutes from './routes/upload.routes'
 
 const app = express()
 const PORT = process.env.PORT ?? 4000
@@ -35,6 +36,7 @@ app.use('/api/video-tasks', videoTasksRoutes)
 app.use('/api/scheduling', schedulingRoutes)
 app.use('/api/trenddesk', trenddeskRoutes)
 app.use('/api/searchdesk', searchdeskRoutes)
+app.use('/api/upload', uploadRoutes)
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISOString() }))
 

@@ -1,14 +1,24 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'motion/react'
-import { Upload, X, Image, Film, FileImage } from 'lucide-react'
+import { Upload, X, Film, Loader2, CheckCircle2 } from 'lucide-react'
 import { formatFileSize } from '@/lib/utils'
+import { api } from '@/lib/api'
 
 export interface UploadedFile {
   id: string
   file: File
   preview: string
   type: 'image' | 'video'
+  url?: string
+  publicId?: string
+  uploading?: boolean
+}
+
+interface UploadResult {
+  url: string
+  publicId: string
+  resourceType: string
 }
 
 interface Props {
@@ -19,6 +29,9 @@ interface Props {
 }
 
 export function MediaUploader({ files, onChange, maxFiles = 10, accept = 'both' }: Props) {
+  const filesRef = useRef<UploadedFile[]>(files)
+  useEffect(() => { filesRef.current = files }, [files])
+
   const acceptMap = {
     images: { 'image/*': ['.jpg', '.jpeg', '.png', '.webp', '.gif'] },
     videos: { 'video/*': ['.mp4', '.mov', '.avi', '.webm'] },
@@ -31,8 +44,24 @@ export function MediaUploader({ files, onChange, maxFiles = 10, accept = 'both' 
       file,
       preview: URL.createObjectURL(file),
       type: file.type.startsWith('video') ? 'video' : 'image',
+      uploading: true,
     }))
-    onChange([...files, ...newFiles].slice(0, maxFiles))
+    const merged = [...files, ...newFiles].slice(0, maxFiles)
+    onChange(merged)
+
+    newFiles.forEach(f => {
+      const formData = new FormData()
+      formData.append('file', f.file)
+      api.upload<UploadResult>('/upload', formData)
+        .then(result => {
+          onChange(filesRef.current.map(p =>
+            p.id === f.id ? { ...p, url: result.url, publicId: result.publicId, uploading: false } : p
+          ))
+        })
+        .catch(() => {
+          onChange(filesRef.current.map(p => p.id === f.id ? { ...p, uploading: false } : p))
+        })
+    })
   }, [files, onChange, maxFiles])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -50,7 +79,6 @@ export function MediaUploader({ files, onChange, maxFiles = 10, accept = 'both' 
 
   return (
     <div className="space-y-3">
-      {/* Drop zone */}
       {files.length < maxFiles && (
         <div
           {...getRootProps()}
@@ -62,10 +90,8 @@ export function MediaUploader({ files, onChange, maxFiles = 10, accept = 'both' 
         >
           <input {...getInputProps()} />
           <div className="flex flex-col items-center gap-2">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center"
-              style={{ background: isDragActive ? 'var(--color-wine-subtle)' : 'white' }}
-            >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ background: isDragActive ? 'var(--color-wine-subtle)' : 'white' }}>
               <Upload size={18} style={{ color: isDragActive ? 'var(--color-wine)' : 'var(--color-gray-text)' }} />
             </div>
             <p className="text-sm font-medium" style={{ color: isDragActive ? 'var(--color-wine)' : 'var(--color-black)' }}>
@@ -79,14 +105,9 @@ export function MediaUploader({ files, onChange, maxFiles = 10, accept = 'both' 
         </div>
       )}
 
-      {/* Preview grid */}
       <AnimatePresence>
         {files.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="grid grid-cols-3 gap-2"
-          >
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-3 gap-2">
             {files.map(f => (
               <motion.div
                 key={f.id}
@@ -107,8 +128,20 @@ export function MediaUploader({ files, onChange, maxFiles = 10, accept = 'both' 
                   </div>
                 )}
 
-                {/* Overlay on hover */}
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-start justify-end p-1.5" style={{ background: 'rgba(0,0,0,0.4)' }}>
+                {/* Upload status */}
+                {f.uploading && (
+                  <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                    <Loader2 size={20} color="white" className="animate-spin" />
+                  </div>
+                )}
+                {!f.uploading && f.url && (
+                  <div className="absolute top-1 right-1">
+                    <CheckCircle2 size={14} style={{ color: '#10B981' }} />
+                  </div>
+                )}
+
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-start justify-end p-1.5"
+                  style={{ background: 'rgba(0,0,0,0.4)' }}>
                   <button
                     onClick={e => { e.stopPropagation(); remove(f.id) }}
                     className="w-6 h-6 rounded-full flex items-center justify-center cursor-pointer"
@@ -118,10 +151,10 @@ export function MediaUploader({ files, onChange, maxFiles = 10, accept = 'both' 
                   </button>
                 </div>
 
-                {/* Type badge */}
                 <div className="absolute bottom-1 left-1">
-                  <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.8)', fontSize: 9 }}>
-                    {formatFileSize(f.file.size)}
+                  <span className="text-xs px-1.5 py-0.5 rounded-full"
+                    style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.8)', fontSize: 9 }}>
+                    {f.uploading ? 'Enviando...' : formatFileSize(f.file.size)}
                   </span>
                 </div>
               </motion.div>
