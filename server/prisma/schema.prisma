@@ -1,0 +1,487 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// === ENUMS ===
+
+enum UserRole {
+  OWNER
+  ADMIN
+  SOCIAL_MEDIA
+  DESIGNER
+  CLIENT
+  VIEWER
+}
+
+enum ProjectRole {
+  OWNER
+  ADMIN
+  SOCIAL_MEDIA
+  DESIGNER
+  CLIENT
+  APPROVER
+  VIEWER
+}
+
+enum Plan {
+  FREE
+  BASIC
+  PROFESSIONAL
+  AGENCY
+}
+
+enum SocialNetwork {
+  INSTAGRAM
+  FACEBOOK
+  TIKTOK
+  YOUTUBE
+  GOOGLE_BUSINESS
+  KWAI
+  LINKEDIN
+  PINTEREST
+  THREADS
+}
+
+enum PostFormat {
+  FEED_INSTAGRAM
+  REELS_INSTAGRAM
+  STORIES_INSTAGRAM
+  CAROUSEL_INSTAGRAM
+  TIKTOK_VIDEO
+  YOUTUBE_SHORTS
+  KWAI_VIDEO
+  GOOGLE_POST
+}
+
+enum PostStatus {
+  IDEA
+  BRIEFING_READY
+  WAITING_RECORDING
+  VIDEO_RECEIVED
+  IN_EDITING
+  PENDING_APPROVAL
+  CHANGES_REQUESTED
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+enum VideoTaskStatus {
+  PENDING
+  SENT
+  CANT_RECORD
+  OVERDUE
+}
+
+enum AccountStatus {
+  CONNECTED
+  DISCONNECTED
+  EXPIRED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  CHANGES_REQUESTED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+enum AssetCategory {
+  LOGO
+  PHOTO
+  VIDEO
+  TEMPLATE
+  CAPTION
+  CTA
+  REFERENCE
+}
+
+enum CopyType {
+  CAPTION
+  SCRIPT
+  CAROUSEL_IDEA
+  STORIES_CTA
+  GOOGLE_POST
+  HOOK
+  TITLE
+  CONTENT_CALENDAR
+  HUMANIZE
+  REVIEW
+  ADAPT_TONE
+}
+
+// === MODELS ===
+
+model User {
+  id                  String          @id @default(cuid())
+  name                String
+  email               String          @unique
+  password            String
+  avatar              String?
+  role                UserRole        @default(SOCIAL_MEDIA)
+  plan                Plan            @default(FREE)
+  onboardingCompleted Boolean         @default(false)
+  projects            ProjectMember[]
+  posts               Post[]          @relation("PostAuthor")
+  copySessions        CopySession[]
+  notifications       Notification[]
+  createdAt           DateTime        @default(now())
+}
+
+model Project {
+  id               String          @id @default(cuid())
+  name             String
+  slug             String          @unique
+  description      String?
+  niche            String?
+  segment          String?
+  logo             String?
+  profilePhoto     String?
+  coverPhoto       String?
+  primaryColor     String          @default("#6B2D3E")
+  secondaryColor   String          @default("#FAF7F2")
+  accentColor      String          @default("#C9A96E")
+  fontHeading      String          @default("Playfair Display")
+  fontBody         String          @default("Inter")
+  toneOfVoice      String?
+  copyPersonality  String?
+  forbiddenWords   String[]        @default([])
+  forbiddenTopics  String[]        @default([])
+  defaultCTAs      String[]        @default([])
+  defaultHashtags  String[]        @default([])
+  contentPillars   String[]        @default([])
+  targetAudience   String?
+  brandKeywords    String[]        @default([])
+  competitors      String[]        @default([])
+  niches           String[]        @default([])
+  searchKeywords   String[]        @default([])
+  members          ProjectMember[]
+  socialAccounts   SocialAccount[]
+  posts            Post[]
+  mediaAssets      MediaAsset[]
+  templates        Template[]
+  approvals        PostApproval[]
+  professionals    Professional[]
+  copySessions     CopySession[]
+  trendItems       TrendItem[]
+  searchTerms      SearchTerm[]
+  canvaTemplates   CanvaTemplate[]
+  reports          Report[]
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+model ProjectMember {
+  id        String      @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectRole @default(SOCIAL_MEDIA)
+  project   Project     @relation(fields: [projectId], references: [id])
+  user      User        @relation(fields: [userId], references: [id])
+  createdAt DateTime    @default(now())
+
+  @@unique([projectId, userId])
+}
+
+model Professional {
+  id          String      @id @default(cuid())
+  projectId   String
+  name        String
+  email       String?
+  phone       String?
+  accessToken String      @unique @default(cuid())
+  avatarUrl   String?
+  bio         String?
+  project     Project     @relation(fields: [projectId], references: [id])
+  videoTasks  VideoTask[]
+  createdAt   DateTime    @default(now())
+}
+
+model VideoTask {
+  id               String          @id @default(cuid())
+  professionalId   String
+  postId           String?
+  title            String
+  description      String?
+  recordingGuide   String?
+  suggestedDuration Int?
+  toneOfVoice      String?
+  observations     String?
+  deadline         DateTime
+  status           VideoTaskStatus @default(PENDING)
+  videoUrl         String?
+  videoPublicId    String?
+  professionalNote String?
+  cantRecordReason String?
+  professional     Professional    @relation(fields: [professionalId], references: [id])
+  post             Post?           @relation(fields: [postId], references: [id])
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+model Post {
+  id             String          @id @default(cuid())
+  projectId      String
+  authorId       String
+  title          String
+  theme          String?
+  format         PostFormat
+  networks       SocialNetwork[]
+  status         PostStatus      @default(IDEA)
+  caption        String?
+  firstComment   String?
+  hashtags       String[]        @default([])
+  location       String?
+  link           String?
+  cta            String?
+  recordingDate  DateTime?
+  publishDate    DateTime?
+  scheduledAt    DateTime?
+  publishedAt    DateTime?
+  responsibleId  String?
+  observations   String?
+  publishResults Json?
+  project        Project         @relation(fields: [projectId], references: [id])
+  author         User            @relation("PostAuthor", fields: [authorId], references: [id])
+  media          PostMedia[]
+  approval       PostApproval?
+  scheduleJob    ScheduleJob?
+  videoTasks     VideoTask[]
+  logs           IntegrationLog[]
+  copySession    CopySession?    @relation(fields: [copySessionId], references: [id])
+  copySessionId  String?         @unique
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model PostMedia {
+  id           String    @id @default(cuid())
+  postId       String
+  url          String
+  publicId     String?
+  type         MediaType
+  order        Int       @default(0)
+  aspectRatio  String?
+  duration     Float?
+  thumbnailUrl String?
+  post         Post      @relation(fields: [postId], references: [id])
+}
+
+model PostApproval {
+  id          String          @id @default(cuid())
+  postId      String          @unique
+  projectId   String
+  requestedBy String
+  status      ApprovalStatus  @default(PENDING)
+  publicToken String          @unique @default(cuid())
+  clientName  String?
+  expiresAt   DateTime
+  post        Post            @relation(fields: [postId], references: [id])
+  project     Project         @relation(fields: [projectId], references: [id])
+  comments    ApprovalComment[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model ApprovalComment {
+  id         String       @id @default(cuid())
+  approvalId String
+  authorName String
+  authorType String       @default("client")
+  text       String
+  createdAt  DateTime     @default(now())
+  approval   PostApproval @relation(fields: [approvalId], references: [id])
+}
+
+model SocialAccount {
+  id            String         @id @default(cuid())
+  projectId     String
+  provider      SocialNetwork
+  accessToken   String
+  refreshToken  String?
+  expiresAt     DateTime?
+  profileId     String
+  profileName   String
+  profileAvatar String?
+  status        AccountStatus  @default(CONNECTED)
+  lastSyncAt    DateTime?
+  project       Project        @relation(fields: [projectId], references: [id])
+  metrics       Metric[]
+  logs          IntegrationLog[]
+}
+
+model CopySession {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  postId    String?  @unique
+  type      CopyType
+  input     String
+  output    String
+  model     String   @default("claude-sonnet-4-6")
+  tokens    Int?
+  saved     Boolean  @default(false)
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+  post      Post?
+  createdAt DateTime @default(now())
+}
+
+model TrendItem {
+  id               String      @id @default(cuid())
+  projectId        String
+  title            String
+  description      String
+  niche            String
+  trendScore       Int
+  source           String?
+  reelsIdea        String?
+  carouselIdea     String?
+  storiesIdea      String?
+  suggestedCaption String?
+  recommendedFormat PostFormat?
+  whyItMatters     String?
+  addedToCalendar  Boolean     @default(false)
+  calendarPostId   String?
+  validUntil       DateTime
+  project          Project     @relation(fields: [projectId], references: [id])
+  createdAt        DateTime    @default(now())
+}
+
+model SearchTerm {
+  id                String   @id @default(cuid())
+  projectId         String
+  term              String
+  niche             String
+  monthlySearches   Int?
+  difficulty        Int?
+  isFeatured        Boolean  @default(false)
+  reelsIdea         String?
+  carouselIdea      String?
+  captionSuggestion String?
+  googlePostIdea    String?
+  source            String?
+  project           Project  @relation(fields: [projectId], references: [id])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Template {
+  id        String         @id @default(cuid())
+  projectId String
+  name      String
+  format    PostFormat
+  network   SocialNetwork?
+  canvaLink String?
+  previewUrl String?
+  isActive  Boolean        @default(true)
+  project   Project        @relation(fields: [projectId], references: [id])
+  createdAt DateTime       @default(now())
+}
+
+model CanvaTemplate {
+  id            String     @id @default(cuid())
+  projectId     String
+  name          String
+  format        PostFormat
+  canvaDesignId String?
+  canvaEditUrl  String
+  previewUrl    String?
+  project       Project    @relation(fields: [projectId], references: [id])
+  createdAt     DateTime   @default(now())
+}
+
+model MediaAsset {
+  id           String        @id @default(cuid())
+  projectId    String
+  url          String
+  publicId     String?
+  thumbnailUrl String?
+  type         MediaType
+  category     AssetCategory @default(PHOTO)
+  name         String
+  folder       String        @default("geral")
+  size         Int
+  tags         String[]      @default([])
+  isTemplate   Boolean       @default(false)
+  project      Project       @relation(fields: [projectId], references: [id])
+  createdAt    DateTime      @default(now())
+}
+
+model Metric {
+  id              String        @id @default(cuid())
+  socialAccountId String
+  date            DateTime
+  followers       Int           @default(0)
+  reach           Int           @default(0)
+  impressions     Int           @default(0)
+  likes           Int           @default(0)
+  comments        Int           @default(0)
+  shares          Int           @default(0)
+  saves           Int           @default(0)
+  clicks          Int           @default(0)
+  videoViews      Int           @default(0)
+  engagementRate  Float         @default(0)
+  account         SocialAccount @relation(fields: [socialAccountId], references: [id])
+}
+
+model Report {
+  id          String   @id @default(cuid())
+  projectId   String
+  title       String
+  period      String
+  data        Json
+  generatedBy String
+  project     Project  @relation(fields: [projectId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model ScheduleJob {
+  id        String   @id @default(cuid())
+  postId    String   @unique
+  jobId     String
+  status    String   @default("pending")
+  attempts  Int      @default(0)
+  lastError String?
+  post      Post     @relation(fields: [postId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model IntegrationLog {
+  id              String         @id @default(cuid())
+  socialAccountId String?
+  postId          String?
+  action          String
+  network         SocialNetwork?
+  statusCode      Int?
+  error           String?
+  retryable       Boolean        @default(false)
+  account         SocialAccount? @relation(fields: [socialAccountId], references: [id])
+  post            Post?          @relation(fields: [postId], references: [id])
+  createdAt       DateTime       @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  data      Json?
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}

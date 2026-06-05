@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+@theme {
+  --color-wine: #6B2D3E;
+  --color-wine-medium: #8B3A4E;
+  --color-wine-light: #C4697A;
+  --color-wine-subtle: #F5E8EB;
+  --color-cream: #FAF7F2;
+  --color-cream-warm: #FFF9F0;
+  --color-gold: #C9A96E;
+  --color-black: #0F0F0F;
+  --color-black-soft: #1A1A1A;
+  --color-gray-text: #5C5C5C;
+  --color-gray-border: #E8E2DA;
+  --color-gray-light: #F2EDE6;
+
+  /* Status */
+  --color-status-idea: #94A3B8;
+  --color-status-briefing: #60A5FA;
+  --color-status-recording: #FBBF24;
+  --color-status-received: #F97316;
+  --color-status-editing: #A78BFA;
+  --color-status-approval: #3B82F6;
+  --color-status-changes: #EF4444;
+  --color-status-approved: #10B981;
+  --color-status-scheduled: #6B2D3E;
+  --color-status-published: #059669;
+
+  /* Networks */
+  --color-instagram: #E1306C;
+  --color-facebook: #1877F2;
+  --color-tiktok: #010101;
+  --color-youtube: #FF0000;
+  --color-google-business: #4285F4;
+  --color-kwai: #FF6602;
+  --color-linkedin: #0A66C2;
+  --color-pinterest: #BD081C;
+  --color-threads: #000000;
+
+  /* Typography */
+  --font-heading: 'Playfair Display', Georgia, serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+
+  /* Shadows */
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-hover: 0 4px 16px rgba(107,45,62,0.15);
+  --shadow-wine: 0 8px 32px rgba(107,45,62,0.25);
+  --shadow-modal: 0 20px 60px rgba(0,0,0,0.2);
+
+  /* Radius */
+  --radius-card: 0.75rem;
+  --radius-btn: 0.5rem;
+}
+
+/* Base */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-body);
+  background-color: var(--color-cream);
+  color: var(--color-black);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-heading);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-gray-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-wine-light);
+}
+
+/* React Big Calendar base styles */
+.rbc-calendar {
+  font-family: var(--font-body);
+}
+
+/* ── GradientText CSS vars ── */
+:root {
+  --color-1: 340 80% 55%;  /* wine-pink */
+  --color-2: 42 80% 60%;   /* gold */
+  --color-3: 210 60% 50%;  /* deep blue */
+  --color-4: 280 60% 60%;  /* soft purple */
+  --color-5: 160 50% 45%;  /* teal */
+}
+
+/* ── GradientText keyframes ── */
+@keyframes gradient-border {
+  0%,100% { border-radius: 37% 29% 27% 27% / 28% 25% 41% 37%; }
+  25%      { border-radius: 47% 29% 39% 49% / 61% 19% 66% 26%; }
+  50%      { border-radius: 57% 23% 47% 72% / 63% 17% 66% 33%; }
+  75%      { border-radius: 28% 49% 29% 100% / 93% 20% 64% 25%; }
+}
+@keyframes gradient-1 {
+  0%,100% { top:0; right:0; }
+  50%     { top:50%; right:25%; }
+  75%     { top:25%; right:50%; }
+}
+@keyframes gradient-2 {
+  0%,100% { top:0; left:0; }
+  60%     { top:75%; left:25%; }
+  85%     { top:50%; left:50%; }
+}
+@keyframes gradient-3 {
+  0%,100% { bottom:0; left:0; }
+  40%     { bottom:50%; left:25%; }
+  65%     { bottom:25%; left:50%; }
+}
+@keyframes gradient-4 {
+  0%,100% { bottom:0; right:0; }
+  50%     { bottom:25%; right:40%; }
+  90%     { bottom:50%; right:25%; }
+}
+
+/* ── Premium shimmer for cards ── */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+.shimmer-text {
+  background: linear-gradient(90deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.5) 50%, rgba(255,255,255,0.1) 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer 3s linear infinite;
+}
+
+/* ── Glass morphism utility ── */
+.glass {
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.glass-cream {
+  background: rgba(250,247,242,0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(232,226,218,0.6);
+}
+
+/* ── Noise texture overlay (subtle grain) ── */
+.noise::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  border-radius: inherit;
+  opacity: 0.35;
+}
