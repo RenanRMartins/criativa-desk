@@ -25,9 +25,9 @@ export function usePosts(projectId?: string) {
     try {
       const query = projectId ? `?projectId=${projectId}` : ''
       const data = await api.get<Post[]>(`/posts${query}`)
-      setPosts(data.length > 0 ? data : MOCK_POSTS)
+      setPosts(data)
     } catch {
-      setPosts(MOCK_POSTS)
+      setPosts([])
     } finally {
       setLoading(false)
     }

@@ -32,9 +32,9 @@ export function useNotifications() {
     if (isDemo(token)) { setNotifications(MOCK); return }
     try {
       const data = await api.get<AppNotification[]>('/notifications')
-      setNotifications(data.length > 0 ? data : MOCK)
+      setNotifications(data)
     } catch {
-      setNotifications(MOCK)
+      setNotifications([])
     }
   }, [token])
 

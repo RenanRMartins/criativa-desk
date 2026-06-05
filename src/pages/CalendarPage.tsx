@@ -290,19 +290,23 @@ export default function CalendarPage() {
         defaultDate={clickedDate}
         onSave={async (data) => {
           if (!activeProject) return
-          await createPost({
-            projectId: activeProject.id,
-            title: data.title,
-            format: data.format as Post['format'],
-            networks: (data.networks ?? []) as Post['networks'],
-            status: (data.status ?? 'IDEA') as Post['status'],
-            caption: data.caption,
-            hashtags: data.hashtags ? data.hashtags.split(/\s+/).filter(Boolean) : [],
-            publishDate: data.publishDate || undefined,
-            theme: data.theme,
-            observations: data.observations,
-          })
-          fetchPosts()
+          try {
+            await createPost({
+              projectId: activeProject.id,
+              title: data.title,
+              format: data.format as Post['format'],
+              networks: (data.networks ?? []) as Post['networks'],
+              status: (data.status ?? 'IDEA') as Post['status'],
+              caption: data.caption,
+              hashtags: data.hashtags ? data.hashtags.split(/\s+/).filter(Boolean) : [],
+              publishDate: data.publishDate || undefined,
+              theme: data.theme,
+              observations: data.observations,
+            })
+            await fetchPosts()
+          } catch (e) {
+            console.error('Erro ao criar post:', e)
+          }
         }}
       />
     </motion.div>
