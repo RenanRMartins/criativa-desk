@@ -46,14 +46,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   const task = await prisma.videoTask.findFirst({
     where: {
-      id: req.params.id,
+      id: req.params.id as string,
       professional: { project: { members: { some: { userId: req.userId } } } },
     },
   })
   if (!task) { res.status(404).json({ message: 'Não encontrada' }); return }
 
   const updated = await prisma.videoTask.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: req.body,
   })
   res.json(updated)
@@ -62,12 +62,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const task = await prisma.videoTask.findFirst({
     where: {
-      id: req.params.id,
+      id: req.params.id as string,
       professional: { project: { members: { some: { userId: req.userId } } } },
     },
   })
   if (!task) { res.status(404).json({ message: 'Não encontrada' }); return }
-  await prisma.videoTask.delete({ where: { id: req.params.id } })
+  await prisma.videoTask.delete({ where: { id: req.params.id as string } })
   res.json({ message: 'Removida' })
 })
 

@@ -17,7 +17,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   const project = await prisma.project.findFirst({
-    where: { id: req.params.id, members: { some: { userId: req.userId } } },
+    where: { id: req.params.id as string, members: { some: { userId: req.userId } } },
     include: { members: { include: { user: { select: { id: true, name: true, email: true, avatar: true } } } }, socialAccounts: true },
   })
   if (!project) { res.status(404).json({ message: 'Projeto não encontrado' }); return }
@@ -52,12 +52,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   const member = await prisma.projectMember.findFirst({
-    where: { projectId: req.params.id, userId: req.userId, role: { in: ['OWNER', 'ADMIN'] } },
+    where: { projectId: req.params.id as string, userId: req.userId, role: { in: ['OWNER', 'ADMIN'] } },
   })
   if (!member) { res.status(403).json({ message: 'Sem permissão' }); return }
 
   const project = await prisma.project.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: req.body,
   })
   res.json(project)
@@ -65,11 +65,11 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
 
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const member = await prisma.projectMember.findFirst({
-    where: { projectId: req.params.id, userId: req.userId, role: 'OWNER' },
+    where: { projectId: req.params.id as string, userId: req.userId, role: 'OWNER' },
   })
   if (!member) { res.status(403).json({ message: 'Sem permissão' }); return }
 
-  await prisma.project.update({ where: { id: req.params.id }, data: { isActive: false } })
+  await prisma.project.update({ where: { id: req.params.id as string }, data: { isActive: false } })
   res.json({ message: 'Projeto desativado' })
 })
 

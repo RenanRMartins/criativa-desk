@@ -23,14 +23,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
     where: {
-      id: req.params.postId,
+      id: req.params.postId as string,
       project: { members: { some: { userId: req.userId } } },
     },
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 
   const updated = await prisma.post.update({
-    where: { id: req.params.postId },
+    where: { id: req.params.postId as string },
     data: {
       status: 'PUBLISHED',
       publishedAt: new Date(),
@@ -54,14 +54,14 @@ router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
 router.delete('/:postId', async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
     where: {
-      id: req.params.postId,
+      id: req.params.postId as string,
       project: { members: { some: { userId: req.userId } } },
     },
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 
   const updated = await prisma.post.update({
-    where: { id: req.params.postId },
+    where: { id: req.params.postId as string },
     data: { status: 'APPROVED', scheduledAt: null },
   })
   res.json(updated)

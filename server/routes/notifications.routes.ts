@@ -24,11 +24,11 @@ router.patch('/read-all', async (req: AuthRequest, res: Response) => {
 
 router.patch('/:id/read', async (req: AuthRequest, res: Response) => {
   const notification = await prisma.notification.findFirst({
-    where: { id: req.params.id, userId: req.userId! },
+    where: { id: req.params.id as string, userId: req.userId! },
   })
   if (!notification) { res.status(404).json({ message: 'Não encontrado' }); return }
   const updated = await prisma.notification.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: { read: true },
   })
   res.json(updated)
@@ -36,10 +36,10 @@ router.patch('/:id/read', async (req: AuthRequest, res: Response) => {
 
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const notification = await prisma.notification.findFirst({
-    where: { id: req.params.id, userId: req.userId! },
+    where: { id: req.params.id as string, userId: req.userId! },
   })
   if (!notification) { res.status(404).json({ message: 'Não encontrado' }); return }
-  await prisma.notification.delete({ where: { id: req.params.id } })
+  await prisma.notification.delete({ where: { id: req.params.id as string } })
   res.json({ message: 'Removida' })
 })
 

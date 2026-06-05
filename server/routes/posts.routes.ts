@@ -30,7 +30,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
-    where: { id: req.params.id, project: { members: { some: { userId: req.userId } } } },
+    where: { id: req.params.id as string, project: { members: { some: { userId: req.userId } } } },
     include: { media: true, approval: { include: { comments: true } }, videoTasks: true, author: { select: { id: true, name: true, email: true } } },
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
@@ -67,21 +67,21 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
-    where: { id: req.params.id, project: { members: { some: { userId: req.userId } } } },
+    where: { id: req.params.id as string, project: { members: { some: { userId: req.userId } } } },
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 
-  const updated = await prisma.post.update({ where: { id: req.params.id }, data: req.body })
+  const updated = await prisma.post.update({ where: { id: req.params.id as string }, data: req.body })
   res.json(updated)
 })
 
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
-    where: { id: req.params.id, project: { members: { some: { userId: req.userId } } } },
+    where: { id: req.params.id as string, project: { members: { some: { userId: req.userId } } } },
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 
-  await prisma.post.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } })
+  await prisma.post.update({ where: { id: req.params.id as string }, data: { status: 'CANCELLED' } })
   res.json({ message: 'Post cancelado' })
 })
 

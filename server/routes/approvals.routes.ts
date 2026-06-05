@@ -7,7 +7,7 @@ const router = Router()
 // Public — no auth needed
 router.get('/public/:token', async (req: Request, res: Response) => {
   const approval = await prisma.postApproval.findFirst({
-    where: { publicToken: req.params.token, expiresAt: { gte: new Date() } },
+    where: { publicToken: req.params.token as string, expiresAt: { gte: new Date() } },
     include: { post: { include: { media: true } }, project: { select: { name: true, logo: true } }, comments: true },
   })
   if (!approval) { res.status(404).json({ message: 'Aprovação não encontrada ou expirada' }); return }
@@ -17,7 +17,7 @@ router.get('/public/:token', async (req: Request, res: Response) => {
 router.post('/public/:token/action', async (req: Request, res: Response) => {
   const { action, comment, authorName } = req.body
   const approval = await prisma.postApproval.findFirst({
-    where: { publicToken: req.params.token, expiresAt: { gte: new Date() } },
+    where: { publicToken: req.params.token as string, expiresAt: { gte: new Date() } },
   })
   if (!approval) { res.status(404).json({ message: 'Aprovação não encontrada' }); return }
 

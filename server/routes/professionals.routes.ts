@@ -8,7 +8,7 @@ const router = Router()
 // Public portal — no auth
 router.get('/portal/:token', async (req: Request, res: Response) => {
   const professional = await prisma.professional.findUnique({
-    where: { accessToken: req.params.token },
+    where: { accessToken: req.params.token as string },
     include: {
       videoTasks: {
         where: { status: { in: ['PENDING', 'OVERDUE'] } },
