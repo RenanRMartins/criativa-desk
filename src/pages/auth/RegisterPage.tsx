@@ -68,7 +68,7 @@ export default function RegisterPage() {
       <div className="relative z-10 w-full max-w-md px-4 py-8">
         <div className="text-center mb-8">
           <h1 className="font-heading font-bold text-5xl mb-2 text-white">
-            Social<GradientText className="text-white">Desk</GradientText>
+            CrIAtiva <GradientText className="text-white">Desk</GradientText>
           </h1>
           <p className="text-sm" style={{ color: 'rgba(255,255,255,0.4)' }}>Crie sua conta gratuitamente</p>
         </div>
