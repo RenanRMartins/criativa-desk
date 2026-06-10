@@ -63,23 +63,16 @@ export default function Sidebar() {
             <motion.div key="full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
               className="flex items-center gap-2.5 flex-1 min-w-0"
             >
-              <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 relative"
-                style={{ background: 'linear-gradient(135deg, var(--color-wine) 0%, var(--color-wine-medium) 100%)' }}
-              >
-                <span className="font-heading font-bold text-white text-sm">S</span>
-                <div className="absolute inset-0 rounded-xl opacity-50" style={{ background: 'radial-gradient(circle at top, rgba(255,255,255,0.2), transparent)' }} />
-              </div>
+              <img src="/logo.png" alt="CrIAtiva Desk"
+                className="w-8 h-8 rounded-xl flex-shrink-0 object-cover" />
               <div className="min-w-0">
                 <span className="font-heading font-bold text-white text-base leading-none">CrIAtiva Desk</span>
                 <p className="text-xs mt-0.5 truncate" style={{ color: 'rgba(255,255,255,0.3)' }}>Social Media OS</p>
               </div>
             </motion.div>
           ) : (
-            <motion.div key="icon" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
-              className="w-8 h-8 rounded-xl flex items-center justify-center relative"
-              style={{ background: 'linear-gradient(135deg, var(--color-wine) 0%, var(--color-wine-medium) 100%)' }}
-            >
-              <span className="font-heading font-bold text-white text-sm">S</span>
+            <motion.div key="icon" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+              <img src="/logo.png" alt="CrIAtiva Desk" className="w-8 h-8 rounded-xl object-cover" />
             </motion.div>
           )}
         </AnimatePresence>

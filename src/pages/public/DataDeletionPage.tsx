@@ -24,9 +24,10 @@ const STEPS = [
 export default function DataDeletionPage() {
   return (
     <motion.div variants={pageVariants} initial="initial" animate="animate" className="min-h-screen" style={{ background: 'var(--color-cream)' }}>
-      <div className="h-16 border-b flex items-center px-6" style={{ background: 'white', borderBottomColor: 'var(--color-gray-border)' }}>
+      <div className="h-16 border-b flex items-center gap-2.5 px-6" style={{ background: 'white', borderBottomColor: 'var(--color-gray-border)' }}>
+        <img src="/logo.png" alt="" className="w-8 h-8 rounded-lg object-cover" />
         <h1 className="font-heading font-bold text-lg" style={{ color: 'var(--color-wine)' }}>CrIAtiva Desk</h1>
-        <span className="ml-3 text-sm" style={{ color: 'var(--color-gray-text)' }}>Exclusão de Dados</span>
+        <span className="ml-1 text-sm" style={{ color: 'var(--color-gray-text)' }}>Exclusão de Dados</span>
       </div>
 
       <div className="max-w-2xl mx-auto p-6 pb-16 space-y-6">

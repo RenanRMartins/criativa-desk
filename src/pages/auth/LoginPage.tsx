@@ -96,6 +96,9 @@ export default function LoginPage() {
           transition={{ delay: 0.1, duration: 0.5 }}
           className="text-center mb-10"
         >
+          <img src="/logo.png" alt="CrIAtiva Desk"
+            className="w-20 h-20 rounded-3xl object-cover mx-auto mb-4"
+            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }} />
           <h1 className="font-heading font-bold text-5xl mb-2 text-white">
             CrIAtiva <GradientText className="text-white">Desk</GradientText>
           </h1>
