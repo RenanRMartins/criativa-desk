@@ -21,6 +21,8 @@ import ReportsPage from '@/pages/ReportsPage'
 import SettingsPage from '@/pages/SettingsPage'
 import ProfessionalPortalPage from '@/pages/public/ProfessionalPortalPage'
 import ApprovalPublicPage from '@/pages/public/ApprovalPublicPage'
+import PrivacyPolicyPage from '@/pages/public/PrivacyPolicyPage'
+import DataDeletionPage from '@/pages/public/DataDeletionPage'
 import AppLayout from '@/components/layout/AppLayout'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -59,6 +61,8 @@ export default function App() {
           />
           <Route path="/gravar/:token" element={<ProfessionalPortalPage />} />
           <Route path="/aprovar/:token" element={<ApprovalPublicPage />} />
+          <Route path="/privacidade" element={<PrivacyPolicyPage />} />
+          <Route path="/exclusao-de-dados" element={<DataDeletionPage />} />
 
           {/* Onboarding */}
           <Route
