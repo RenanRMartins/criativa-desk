@@ -266,40 +266,62 @@ export default function SettingsPage() {
 
               <div className="space-y-3">
                 {NETWORK_LIST.map(net => {
-                  const account = connectedAccounts.find(a => a.provider === net.id.toUpperCase())
+                  const accounts = connectedAccounts.filter(a => a.provider === net.id.toUpperCase())
                   const isSupported = net.id in OAUTH_NETWORKS
                   const isConnecting = connectingNetwork === net.id
 
                   return (
-                    <div key={net.id} className="flex items-center gap-3 p-4 rounded-xl border"
-                      style={{ borderColor: account ? 'rgba(16,185,129,0.3)' : 'var(--color-gray-border)' }}>
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                        style={{ background: net.color }}>
-                        {net.tag}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{net.label}</p>
-                        <p className="text-xs truncate" style={{ color: account ? '#10B981' : 'var(--color-gray-text)' }}>
-                          {account ? `✓ ${account.profileName}` : 'Não conectado'}
-                        </p>
-                      </div>
-                      {account ? (
-                        <button
-                          onClick={() => disconnectNetwork(account.id)}
-                          className="px-4 py-2 rounded-xl text-xs cursor-pointer border transition-colors hover:bg-red-50"
-                          style={{ borderColor: '#EF4444', color: '#EF4444' }}>
-                          Desconectar
-                        </button>
-                      ) : (
+                    <div key={net.id} className="p-4 rounded-xl border space-y-3"
+                      style={{ borderColor: accounts.length ? 'rgba(16,185,129,0.3)' : 'var(--color-gray-border)' }}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                          style={{ background: net.color }}>
+                          {net.tag}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{net.label}</p>
+                          <p className="text-xs truncate" style={{ color: accounts.length ? '#10B981' : 'var(--color-gray-text)' }}>
+                            {accounts.length === 0
+                              ? 'Não conectado'
+                              : accounts.length === 1 ? '✓ 1 conta conectada' : `✓ ${accounts.length} contas conectadas`}
+                          </p>
+                        </div>
                         <button
                           onClick={() => isSupported ? connectNetwork(net.id) : undefined}
                           disabled={!isSupported || isConnecting}
                           className="px-4 py-2 rounded-xl text-sm font-medium cursor-pointer border transition-colors hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                           style={{ borderColor: 'var(--color-gray-border)' }}
                           title={!isSupported ? 'Em breve' : undefined}>
-                          {isConnecting ? <Loader2 size={13} className="animate-spin" /> : null}
-                          {isSupported ? 'Conectar' : 'Em breve'}
+                          {isConnecting
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : accounts.length > 0 ? <Plus size={13} /> : null}
+                          {!isSupported ? 'Em breve' : accounts.length > 0 ? 'Adicionar conta' : 'Conectar'}
                         </button>
+                      </div>
+
+                      {accounts.length > 0 && (
+                        <div className="space-y-2 ml-[52px]">
+                          {accounts.map(account => (
+                            <div key={account.id} className="flex items-center gap-2.5 p-2.5 rounded-lg"
+                              style={{ background: 'var(--color-gray-light)' }}>
+                              {account.profileAvatar ? (
+                                <img src={account.profileAvatar} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                              ) : (
+                                <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+                                  style={{ background: net.color }}>
+                                  {net.tag}
+                                </div>
+                              )}
+                              <p className="text-xs font-medium flex-1 truncate">{account.profileName}</p>
+                              <button
+                                onClick={() => disconnectNetwork(account.id)}
+                                className="px-2.5 py-1 rounded-lg text-xs cursor-pointer border transition-colors hover:bg-red-50 flex-shrink-0"
+                                style={{ borderColor: '#EF4444', color: '#EF4444' }}>
+                                Desconectar
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )

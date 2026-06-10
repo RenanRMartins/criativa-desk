@@ -15,6 +15,39 @@ function oauthClient() {
   )
 }
 
+// Multi-conta: se o mesmo perfil (profileId) reconectar, atualiza tokens;
+// perfis diferentes do mesmo provider viram contas adicionais no projeto
+async function saveSocialAccount(data: {
+  projectId: string
+  provider: string
+  accessToken: string
+  refreshToken?: string
+  expiresAt?: Date
+  profileId: string
+  profileName: string
+  profileAvatar?: string
+}) {
+  const existing = await prisma.socialAccount.findFirst({
+    where: { projectId: data.projectId, provider: data.provider as never, profileId: data.profileId },
+  })
+  if (existing) {
+    return prisma.socialAccount.update({
+      where: { id: existing.id },
+      data: {
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken ?? existing.refreshToken,
+        expiresAt: data.expiresAt,
+        profileName: data.profileName,
+        profileAvatar: data.profileAvatar,
+        status: 'CONNECTED',
+      },
+    })
+  }
+  return prisma.socialAccount.create({
+    data: { ...data, provider: data.provider as never, status: 'CONNECTED' },
+  })
+}
+
 const SCOPES: Record<string, string[]> = {
   YOUTUBE: [
     'https://www.googleapis.com/auth/youtube.upload',
@@ -86,22 +119,15 @@ router.get('/google/callback', async (req: Request, res: Response) => {
       } catch { /* usa defaults */ }
     }
 
-    // Upsert — remove existing and recreate (sem unique composto no schema)
-    await prisma.socialAccount.deleteMany({
-      where: { projectId, provider: network as never },
-    })
-    await prisma.socialAccount.create({
-      data: {
-        projectId,
-        provider: network as never,
-        accessToken: tokens.access_token!,
-        refreshToken: tokens.refresh_token ?? undefined,
-        expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
-        profileId,
-        profileName,
-        profileAvatar,
-        status: 'CONNECTED',
-      },
+    await saveSocialAccount({
+      projectId,
+      provider: network,
+      accessToken: tokens.access_token!,
+      refreshToken: tokens.refresh_token ?? undefined,
+      expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
+      profileId,
+      profileName,
+      profileAvatar,
     })
 
     res.redirect(`${frontend}/settings?oauth_success=${network.toLowerCase()}`)
@@ -158,17 +184,13 @@ router.get('/linkedin/callback', async (req: Request, res: Response) => {
     })
     const profile = await profileRes.json() as Record<string, string>
 
-    await prisma.socialAccount.deleteMany({ where: { projectId, provider: 'LINKEDIN' } })
-    await prisma.socialAccount.create({
-      data: {
-        projectId,
-        provider: 'LINKEDIN',
-        accessToken,
-        profileId: profile.sub ?? userId,
-        profileName: profile.name ?? 'LinkedIn',
-        profileAvatar: profile.picture,
-        status: 'CONNECTED',
-      },
+    await saveSocialAccount({
+      projectId,
+      provider: 'LINKEDIN',
+      accessToken,
+      profileId: profile.sub ?? userId,
+      profileName: profile.name ?? 'LinkedIn',
+      profileAvatar: profile.picture,
     })
     res.redirect(`${frontend}/settings?oauth_success=linkedin`)
   } catch (err) {
@@ -226,18 +248,14 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
     )
     const profile = await profileRes.json() as Record<string, unknown>
 
-    await prisma.socialAccount.deleteMany({ where: { projectId, provider: network as never } })
-    await prisma.socialAccount.create({
-      data: {
-        projectId,
-        provider: network as never,
-        accessToken,
-        profileId: (profile.id as string) ?? userId,
-        profileName: (profile.name as string) ?? network,
-        profileAvatar: (profile.picture as Record<string, unknown>)?.data
-          ? ((profile.picture as Record<string, Record<string, string>>).data.url) : undefined,
-        status: 'CONNECTED',
-      },
+    await saveSocialAccount({
+      projectId,
+      provider: network,
+      accessToken,
+      profileId: (profile.id as string) ?? userId,
+      profileName: (profile.name as string) ?? network,
+      profileAvatar: (profile.picture as Record<string, unknown>)?.data
+        ? ((profile.picture as Record<string, Record<string, string>>).data.url) : undefined,
     })
     res.redirect(`${frontend}/settings?oauth_success=${network.toLowerCase()}`)
   } catch (err) {
@@ -294,17 +312,13 @@ router.get('/tiktok/callback', async (req: Request, res: Response) => {
     const profileData = await profileRes.json() as Record<string, unknown>
     const profile = (profileData.data as Record<string, unknown>)?.user as Record<string, string> ?? {}
 
-    await prisma.socialAccount.deleteMany({ where: { projectId, provider: 'TIKTOK' } })
-    await prisma.socialAccount.create({
-      data: {
-        projectId,
-        provider: 'TIKTOK',
-        accessToken: String(accessToken),
-        profileId: profile.open_id ?? userId,
-        profileName: profile.display_name ?? 'TikTok',
-        profileAvatar: profile.avatar_url,
-        status: 'CONNECTED',
-      },
+    await saveSocialAccount({
+      projectId,
+      provider: 'TIKTOK',
+      accessToken: String(accessToken),
+      profileId: profile.open_id ?? userId,
+      profileName: profile.display_name ?? 'TikTok',
+      profileAvatar: profile.avatar_url,
     })
     res.redirect(`${frontend}/settings?oauth_success=tiktok`)
   } catch (err) {
@@ -320,6 +334,7 @@ router.get('/accounts', authMiddleware, async (req: AuthRequest, res: Response) 
   const accounts = await prisma.socialAccount.findMany({
     where: { projectId, status: 'CONNECTED' },
     select: { id: true, provider: true, profileName: true, profileAvatar: true, status: true },
+    orderBy: [{ provider: 'asc' }, { profileName: 'asc' }],
   })
   res.json(accounts)
 })

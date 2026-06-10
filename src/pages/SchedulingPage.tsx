@@ -9,9 +9,16 @@ import { useProjectStore } from '@/store/projectStore'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
 import { NETWORK_LABELS } from '@/lib/constants'
-import type { SocialNetwork } from '@/types'
+import type { Post, SocialNetwork } from '@/types'
 
 function isDemo(token: string | null) { return !token || token.startsWith('demo-token') }
+
+interface ConnectedAccount {
+  id: string
+  provider: SocialNetwork
+  profileName: string
+  profileAvatar?: string
+}
 
 export default function SchedulingPage() {
   const { token } = useAuthStore()
@@ -19,19 +26,45 @@ export default function SchedulingPage() {
   const { posts, fetchPosts, updatePost } = usePosts(activeProject?.id)
   const [publishing, setPublishing] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [accounts, setAccounts] = useState<ConnectedAccount[]>([])
+  const [selectTarget, setSelectTarget] = useState<Post | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
 
   const scheduled = posts.filter(p => ['SCHEDULED', 'APPROVED'].includes(p.status))
 
   useEffect(() => { fetchPosts() }, [fetchPosts])
 
-  async function publishNow(postId: string, title: string) {
+  useEffect(() => {
+    if (activeProject && !isDemo(token)) {
+      api.get<ConnectedAccount[]>(`/social/accounts?projectId=${activeProject.id}`)
+        .then(setAccounts)
+        .catch(() => setAccounts([]))
+    }
+  }, [activeProject, token])
+
+  // Abre o seletor de contas quando há contas conectadas nas redes do post;
+  // sem contas (ou em demo) publica direto via mock
+  function requestPublish(post: Post) {
+    if (isDemo(token)) { void publishNow(post.id, post.title, []); return }
+    const matching = accounts.filter(a => post.networks.includes(a.provider))
+    if (matching.length === 0) { void publishNow(post.id, post.title, []); return }
+    setSelectedIds(matching.map(a => a.id))
+    setSelectTarget(post)
+  }
+
+  function toggleAccount(id: string) {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  async function publishNow(postId: string, title: string, accountIds: string[]) {
     setPublishing(postId)
+    setSelectTarget(null)
     try {
       if (isDemo(token)) {
         await new Promise(r => setTimeout(r, 1000))
         await updatePost(postId, { status: 'PUBLISHED', publishedAt: new Date().toISOString() })
       } else {
-        await api.post(`/scheduling/${postId}/publish`, {})
+        await api.post(`/scheduling/${postId}/publish`, { accountIds })
         await updatePost(postId, { status: 'PUBLISHED' })
       }
       setToast(`"${title}" publicado com sucesso!`)
@@ -121,7 +154,7 @@ export default function SchedulingPage() {
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
                       <button
-                        onClick={() => publishNow(post.id, post.title)}
+                        onClick={() => requestPublish(post)}
                         disabled={publishing === post.id}
                         className="p-1.5 rounded-lg cursor-pointer hover:bg-green-50 transition-colors disabled:opacity-50"
                         title="Publicar agora"
@@ -146,6 +179,93 @@ export default function SchedulingPage() {
           </table>
         )}
       </div>
+
+      {/* Modal: escolher contas para publicar */}
+      <AnimatePresence>
+        {selectTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.4)' }}
+            onClick={() => setSelectTarget(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={{ duration: 0.18 }}
+              className="w-full max-w-md rounded-2xl p-6 space-y-4"
+              style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div>
+                <h2 className="font-heading font-semibold text-lg">Publicar em quais contas?</h2>
+                <p className="text-sm mt-0.5 truncate" style={{ color: 'var(--color-gray-text)' }}>
+                  "{selectTarget.title}"
+                </p>
+              </div>
+
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {accounts
+                  .filter(a => selectTarget.networks.includes(a.provider))
+                  .map(account => {
+                    const checked = selectedIds.includes(account.id)
+                    return (
+                      <label key={account.id}
+                        className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors"
+                        style={{
+                          borderColor: checked ? 'var(--color-wine)' : 'var(--color-gray-border)',
+                          background: checked ? 'var(--color-wine-subtle)' : 'transparent',
+                        }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleAccount(account.id)}
+                          className="w-4 h-4 cursor-pointer flex-shrink-0"
+                          style={{ accentColor: 'var(--color-wine)' }}
+                        />
+                        {account.profileAvatar ? (
+                          <img src={account.profileAvatar} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                            style={{ background: 'var(--color-wine)' }}>
+                            {account.profileName.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{account.profileName}</p>
+                          <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>
+                            {NETWORK_LABELS[account.provider]}
+                          </p>
+                        </div>
+                      </label>
+                    )
+                  })}
+              </div>
+
+              <div className="flex gap-2 justify-end pt-1">
+                <button
+                  onClick={() => setSelectTarget(null)}
+                  className="px-4 py-2.5 rounded-xl text-sm cursor-pointer border transition-colors hover:bg-gray-50"
+                  style={{ borderColor: 'var(--color-gray-border)' }}>
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => publishNow(selectTarget.id, selectTarget.title, selectedIds)}
+                  disabled={selectedIds.length === 0}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: 'var(--color-wine)' }}>
+                  <Send size={14} />
+                  Publicar {selectedIds.length > 0 && `(${selectedIds.length})`}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }

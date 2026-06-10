@@ -20,6 +20,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 })
 
 // Publicar agora (mock — sem OAuth real)
+// Body opcional: { accountIds: string[] } — contas escolhidas para a publicação
 router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
     where: {
@@ -29,12 +30,24 @@ router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 
+  const { accountIds } = (req.body ?? {}) as { accountIds?: string[] }
+  const accounts = accountIds?.length
+    ? await prisma.socialAccount.findMany({
+        where: { id: { in: accountIds }, projectId: post.projectId, status: 'CONNECTED' },
+        select: { id: true, provider: true, profileName: true },
+      })
+    : []
+
   const updated = await prisma.post.update({
     where: { id: req.params.postId as string },
     data: {
       status: 'PUBLISHED',
       publishedAt: new Date(),
-      publishResults: { mock: true, message: 'Publicado via mock (SOCIAL_MOCK_MODE=true)' },
+      publishResults: {
+        mock: true,
+        message: 'Publicado via mock (SOCIAL_MOCK_MODE=true)',
+        accounts,
+      },
     },
   })
 
@@ -43,7 +56,9 @@ router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
       userId: req.userId!,
       type: 'scheduled',
       title: 'Post publicado!',
-      message: `"${post.title}" foi publicado com sucesso.`,
+      message: accounts.length
+        ? `"${post.title}" foi publicado em ${accounts.map(a => a.profileName).join(', ')}.`
+        : `"${post.title}" foi publicado com sucesso.`,
     },
   })
 
