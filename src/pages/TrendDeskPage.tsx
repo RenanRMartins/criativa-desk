@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { pageVariants } from '@/lib/motionVariants'
 import { motion } from 'motion/react'
-import { TrendingUp, CalendarPlus, ChevronRight, Flame, Sparkles } from 'lucide-react'
+import { TrendingUp, CalendarPlus, ChevronRight, Flame, Sparkles, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectStore } from '@/store/projectStore'
-import { MOCK_TRENDS } from '@/lib/mockData'
+import { useTrends } from '@/hooks/useTrends'
 import { truncate } from '@/lib/utils'
 import type { TrendItem } from '@/types'
 import { GlowCard } from '@/components/ui/spotlight-card'
@@ -121,8 +121,10 @@ function TrendCard({ trend }: { trend: TrendItem }) {
 
 export default function TrendDeskPage() {
   const { activeProject } = useProjectStore()
-  const trends = MOCK_TRENDS.filter(t => !activeProject || t.projectId === activeProject.id)
+  const { trends, loading, fetchTrends } = useTrends(activeProject?.id)
   const top = trends[0]
+
+  useEffect(() => { fetchTrends() }, [fetchTrends])
 
   return (
     <motion.div
@@ -169,7 +171,8 @@ export default function TrendDeskPage() {
           </div>
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
             style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.12)' }}>
-            <Sparkles size={11} /> Atualizado agora
+            {loading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+            {loading ? 'Atualizando…' : 'Atualizado agora'}
           </div>
         </div>
 
