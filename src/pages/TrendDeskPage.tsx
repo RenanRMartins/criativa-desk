@@ -119,12 +119,19 @@ function TrendCard({ trend }: { trend: TrendItem }) {
   )
 }
 
+const BRAZIL_NICHE = 'Em alta no Brasil'
+
 export default function TrendDeskPage() {
   const { activeProject } = useProjectStore()
   const { trends, loading, fetchTrends } = useTrends(activeProject?.id)
-  const top = trends[0]
+  const [scope, setScope] = useState<'nicho' | 'brasil'>('nicho')
 
   useEffect(() => { fetchTrends() }, [fetchTrends])
+
+  const nicheTrends = trends.filter(t => t.niche !== BRAZIL_NICHE)
+  const brazilTrends = trends.filter(t => t.niche === BRAZIL_NICHE)
+  const visible = scope === 'nicho' ? nicheTrends : brazilTrends
+  const top = visible[0]
 
   return (
     <motion.div
@@ -174,6 +181,27 @@ export default function TrendDeskPage() {
             {loading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
             {loading ? 'Atualizando…' : 'Atualizado agora'}
           </div>
+        </div>
+
+        {/* Filtro: nicho do projeto vs Brasil geral */}
+        <div className="flex items-center gap-2">
+          {([
+            { id: 'nicho' as const, label: `Meu nicho (${nicheTrends.length})` },
+            { id: 'brasil' as const, label: `Em alta no Brasil (${brazilTrends.length})` },
+          ]).map(chip => (
+            <button
+              key={chip.id}
+              onClick={() => setScope(chip.id)}
+              className="px-4 py-2 rounded-full text-xs font-medium cursor-pointer transition-colors"
+              style={{
+                background: scope === chip.id ? 'var(--color-cream-warm)' : 'rgba(255,255,255,0.08)',
+                color: scope === chip.id ? 'var(--color-wine)' : 'rgba(255,255,255,0.6)',
+                border: scope === chip.id ? '1px solid transparent' : '1px solid rgba(255,255,255,0.12)',
+              }}
+            >
+              {chip.label}
+            </button>
+          ))}
         </div>
 
         {/* Oportunidade do Dia */}
@@ -227,14 +255,27 @@ export default function TrendDeskPage() {
             animate="animate"
             className="grid grid-cols-2 gap-4"
           >
-            {trends.map(t => <TrendCard key={t.id} trend={t} />)}
+            {visible.slice(1).map(t => <TrendCard key={t.id} trend={t} />)}
           </motion.div>
         </div>
 
-        {trends.length === 0 && (
+        {visible.length === 0 && (
           <div className="text-center py-20">
             <TrendingUp size={44} className="mx-auto mb-3" style={{ color: 'rgba(255,255,255,0.15)' }} />
-            <p style={{ color: 'rgba(255,255,255,0.35)' }}>Nenhuma tendência disponível</p>
+            <p className="mb-4" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              {scope === 'nicho'
+                ? 'Nenhuma tendência do seu nicho no momento'
+                : 'Nenhuma busca geral disponível agora'}
+            </p>
+            {scope === 'nicho' && brazilTrends.length > 0 && (
+              <button
+                onClick={() => setScope('brasil')}
+                className="px-4 py-2 rounded-xl text-xs font-medium cursor-pointer"
+                style={{ background: 'var(--color-cream-warm)', color: 'var(--color-wine)' }}
+              >
+                Ver buscas em alta no Brasil
+              </button>
+            )}
           </div>
         )}
       </div>
