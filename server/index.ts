@@ -15,6 +15,7 @@ import trenddeskRoutes from './routes/trenddesk.routes'
 import searchdeskRoutes from './routes/searchdesk.routes'
 import uploadRoutes from './routes/upload.routes'
 import socialRoutes from './routes/social.routes'
+import { startPublishWorker } from './workers/publish.worker'
 
 const app = express()
 const PORT = process.env.PORT ?? 4000
@@ -44,6 +45,7 @@ app.get('/api/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISO
 
 app.listen(PORT, () => {
   console.log(`CrIAtiva Desk API running on http://localhost:${PORT}`)
+  startPublishWorker()
 })
 
 export default app

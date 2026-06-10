@@ -30,7 +30,7 @@ export default function SchedulingPage() {
   const [selectTarget, setSelectTarget] = useState<Post | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
 
-  const scheduled = posts.filter(p => ['SCHEDULED', 'APPROVED'].includes(p.status))
+  const scheduled = posts.filter(p => ['SCHEDULED', 'APPROVED', 'FAILED'].includes(p.status))
 
   useEffect(() => { fetchPosts() }, [fetchPosts])
 
@@ -88,7 +88,7 @@ export default function SchedulingPage() {
       <div>
         <h1 className="font-heading font-bold text-2xl">Agendamentos</h1>
         <p className="text-sm mt-0.5" style={{ color: 'var(--color-gray-text)' }}>
-          Posts aprovados e agendados para publicação
+          Posts agendados publicam automaticamente na hora marcada
         </p>
       </div>
 
