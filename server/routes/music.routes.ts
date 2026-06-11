@@ -260,6 +260,18 @@ router.get('/youtube/playlist-items', authMiddleware, async (req: AuthRequest, r
     const ids = (r.data.items ?? [])
       .map(i => i.contentDetails?.videoId)
       .filter((v): v is string => !!v)
+
+    // remove vídeos que bloqueiam embed (restrição de gravadora) ou foram removidos
+    if (ids.length > 0) {
+      const details = await yt.videos.list({ part: ['status'], id: ids, maxResults: 50 })
+      const playable = new Set(
+        (details.data.items ?? [])
+          .filter(v => v.status?.embeddable !== false && v.status?.uploadStatus === 'processed')
+          .map(v => v.id)
+      )
+      res.json(ids.filter(id => playable.has(id)))
+      return
+    }
     res.json(ids)
   } catch (err) {
     console.error('YouTube playlist items error:', err)

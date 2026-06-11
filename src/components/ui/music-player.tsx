@@ -73,6 +73,7 @@ declare global {
         events?: {
           onReady?: (e: YTPlayerEvent) => void
           onStateChange?: (e: YTPlayerEvent) => void
+          onError?: (e: YTPlayerEvent) => void
         }
       }) => YTPlayer
       PlayerState: { PLAYING: number }
@@ -289,7 +290,7 @@ export function MusicPlayer() {
   // Player embutido do YouTube (IFrame API) na playlist escolhida.
   // Carrega por IDs de vídeo (via API autenticada) — funciona com playlists privadas.
   useEffect(() => {
-    if (!realYoutube || !ytPlaylistId || !open || minimized) return
+    if (!realYoutube || !ytPlaylistId || !open) return
     let cancelled = false
 
     async function load() {
@@ -325,6 +326,8 @@ export function MusicPlayer() {
                 setYtDuration(Math.floor(e.target.getDuration() || 0))
               } catch {}
             },
+            // vídeo com embed bloqueado pela gravadora → pula para o próximo
+            onError: e => { try { e.target.nextVideo() } catch {} },
           },
         })
       }
@@ -347,15 +350,16 @@ export function MusicPlayer() {
     return () => { cancelled = true }
   }, [realYoutube, ytPlaylistId, open, minimized])
 
-  // destrói o player do YouTube quando o painel sai de cena (o iframe vai junto com o DOM)
+  // destrói o player do YouTube só quando o widget fecha ou troca de provider
+  // (minimizar mantém o iframe montado — a música continua)
   useEffect(() => {
-    if ((!open || minimized || !realYoutube) && ytPlayerRef.current) {
+    if ((!open || !realYoutube) && ytPlayerRef.current) {
       try { ytPlayerRef.current.destroy() } catch {}
       ytPlayerRef.current = null
       setYtPlaying(false)
       setYtProgress(0)
     }
-  }, [open, minimized, realYoutube])
+  }, [open, realYoutube])
 
   // progresso do YouTube (1s)
   useEffect(() => {
@@ -598,6 +602,15 @@ export function MusicPlayer() {
         </div>
       </div>
 
+      {/* Embed do YouTube fora do colapso — minimizar não interrompe a música */}
+      {realYoutube && ytPlaylistId && (
+        <div className="px-4" style={{ height: minimized ? 0 : 'auto', overflow: 'hidden' }}>
+          <div className="w-full rounded-xl overflow-hidden mb-3" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <div id="yt-music-embed" />
+          </div>
+        </div>
+      )}
+
       <AnimatePresence>
         {!minimized && (
           <motion.div
@@ -693,11 +706,6 @@ export function MusicPlayer() {
                       <p className="text-xs text-center" style={{ color: 'rgba(255,255,255,0.35)' }}>
                         Nenhuma playlist encontrada — crie uma no YouTube e reabra o player
                       </p>
-                    )}
-                    {ytPlaylistId && (
-                      <div className="w-full rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
-                        <div id="yt-music-embed" />
-                      </div>
                     )}
                   </>
                 )}
