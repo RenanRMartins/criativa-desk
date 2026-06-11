@@ -348,7 +348,8 @@ export function MusicPlayer() {
 
     void load()
     return () => { cancelled = true }
-  }, [realYoutube, ytPlaylistId, open, minimized])
+    // 'minimized' fica fora das deps de propósito: minimizar não pode recarregar a playlist
+  }, [realYoutube, ytPlaylistId, open])
 
   // destrói o player do YouTube só quando o widget fecha ou troca de provider
   // (minimizar mantém o iframe montado — a música continua)
