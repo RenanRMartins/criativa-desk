@@ -137,7 +137,22 @@ model User {
   posts               Post[]          @relation("PostAuthor")
   copySessions        CopySession[]
   notifications       Notification[]
+  musicConnections    MusicConnection[]
   createdAt           DateTime        @default(now())
+}
+
+model MusicConnection {
+  id           String    @id @default(cuid())
+  userId       String
+  provider     String
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  profileName  String?
+  user         User      @relation(fields: [userId], references: [id])
+  createdAt    DateTime  @default(now())
+
+  @@unique([userId, provider])
 }
 
 model Project {

@@ -15,6 +15,7 @@ import trenddeskRoutes from './routes/trenddesk.routes'
 import searchdeskRoutes from './routes/searchdesk.routes'
 import uploadRoutes from './routes/upload.routes'
 import socialRoutes from './routes/social.routes'
+import musicRoutes from './routes/music.routes'
 import { startPublishWorker } from './workers/publish.worker'
 
 const app = express()
@@ -40,6 +41,7 @@ app.use('/api/trenddesk', trenddeskRoutes)
 app.use('/api/searchdesk', searchdeskRoutes)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/social', socialRoutes)
+app.use('/api/music', musicRoutes)
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISOString() }))
 

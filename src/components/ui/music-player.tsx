@@ -4,6 +4,8 @@ import {
   Music2, Play, Pause, SkipForward, SkipBack, Volume2, VolumeX,
   ChevronDown, ExternalLink, Shuffle, Repeat, X, Headphones,
 } from 'lucide-react'
+import { useAuthStore } from '@/store/authStore'
+import { api } from '@/lib/api'
 
 const POS_KEY = 'music-player-pos'
 
@@ -15,6 +17,8 @@ function getSavedPos() {
   return { x: 0, y: 0 }
 }
 
+function isDemo(token: string | null) { return !token || token.startsWith('demo-token') }
+
 type Provider = 'spotify' | 'youtube' | null
 
 interface Track {
@@ -22,6 +26,19 @@ interface Track {
   artist: string
   cover: string
   duration: number
+}
+
+interface NowPlaying {
+  playing: boolean
+  progressMs: number
+  volume: number | null
+  track: {
+    title: string
+    artist: string
+    cover: string | null
+    durationMs: number
+    url: string | null
+  } | null
 }
 
 const DEMO_TRACKS: Track[] = [
@@ -36,6 +53,9 @@ function formatTime(s: number) {
 }
 
 export function MusicPlayer() {
+  const { token } = useAuthStore()
+  const demo = isDemo(token)
+
   const [open, setOpen] = useState(false)
   const [minimized, setMinimized] = useState(false)
   const [provider, setProvider] = useState<Provider>(null)
@@ -46,7 +66,14 @@ export function MusicPlayer() {
   const [trackIdx, setTrackIdx] = useState(0)
   const [progress, setProgress] = useState(0)
   const [volume, setVolume] = useState(80)
+  const [spotifyConnected, setSpotifyConnected] = useState(false)
+  const [spotifyName, setSpotifyName] = useState<string | null>(null)
+  const [now, setNow] = useState<NowPlaying | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const noticeRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const realSpotify = !demo && provider === 'spotify' && spotifyConnected
 
   const saved = getSavedPos()
   const x = useMotionValue(saved.x)
@@ -66,7 +93,64 @@ export function MusicPlayer() {
 
   const track = DEMO_TRACKS[trackIdx]
 
+  function showNotice(msg: string) {
+    setNotice(msg)
+    if (noticeRef.current) clearTimeout(noticeRef.current)
+    noticeRef.current = setTimeout(() => setNotice(null), 4000)
+  }
+
+  // Volta do OAuth do Spotify (?music_success / ?music_error)
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('music_success')) {
+      setOpen(true)
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (params.get('music_error')) {
+      setOpen(true)
+      showNotice('Não foi possível conectar o Spotify. Tente novamente.')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
+
+  // Status da conexão Spotify ao abrir o player
+  useEffect(() => {
+    if (!open || demo) return
+    api.get<{ connected: boolean; profileName: string | null }>('/music/status')
+      .then(s => {
+        setSpotifyConnected(s.connected)
+        setSpotifyName(s.profileName)
+        if (s.connected) setProvider('spotify')
+      })
+      .catch(() => {})
+  }, [open, demo])
+
+  // Polling da faixa atual (modo real)
+  useEffect(() => {
+    if (!realSpotify || !open || minimized) return
+    let active = true
+    const load = () =>
+      api.get<NowPlaying>('/music/spotify/now-playing')
+        .then(d => { if (active) setNow(d) })
+        .catch(() => {})
+    load()
+    const id = setInterval(load, 5000)
+    return () => { active = false; clearInterval(id) }
+  }, [realSpotify, open, minimized])
+
+  // Avanço local do progresso entre polls (modo real)
+  useEffect(() => {
+    if (!realSpotify || !now?.playing) return
+    const id = setInterval(() => {
+      setNow(n => n?.track
+        ? { ...n, progressMs: Math.min(n.progressMs + 1000, n.track.durationMs) }
+        : n)
+    }, 1000)
+    return () => clearInterval(id)
+  }, [realSpotify, now?.playing])
+
+  // Progresso demo
+  useEffect(() => {
+    if (realSpotify) return
     if (playing) {
       intervalRef.current = setInterval(() => {
         setProgress(p => {
@@ -81,7 +165,7 @@ export function MusicPlayer() {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [playing, trackIdx])
+  }, [playing, trackIdx, realSpotify])
 
   function nextTrack() {
     setTrackIdx(i => shuffle ? Math.floor(Math.random() * DEMO_TRACKS.length) : (i + 1) % DEMO_TRACKS.length)
@@ -91,6 +175,61 @@ export function MusicPlayer() {
     setTrackIdx(i => (i - 1 + DEMO_TRACKS.length) % DEMO_TRACKS.length)
     setProgress(0)
   }
+
+  async function selectProvider(p: Exclude<Provider, null>) {
+    if (p === 'youtube' || demo) { setProvider(p); return }
+    if (spotifyConnected) { setProvider('spotify'); return }
+    try {
+      const { url } = await api.get<{ url: string }>('/music/spotify/auth-url')
+      window.location.href = url
+    } catch (e) {
+      showNotice(e instanceof Error ? e.message : 'Spotify indisponível')
+    }
+  }
+
+  async function control(action: 'play' | 'pause' | 'next' | 'previous' | 'volume', vol?: number) {
+    try {
+      await api.post('/music/spotify/control', { action, volume: vol })
+      if (action === 'play') setNow(n => n ? { ...n, playing: true } : n)
+      if (action === 'pause') setNow(n => n ? { ...n, playing: false } : n)
+      if (action === 'next' || action === 'previous') {
+        setTimeout(() => {
+          api.get<NowPlaying>('/music/spotify/now-playing').then(setNow).catch(() => {})
+        }, 600)
+      }
+    } catch (e) {
+      showNotice(e instanceof Error ? e.message : 'Erro no controle')
+    }
+  }
+
+  async function disconnectSpotify() {
+    try { await api.delete('/music/spotify') } catch {}
+    setSpotifyConnected(false)
+    setSpotifyName(null)
+    setNow(null)
+    setProvider(null)
+  }
+
+  // Valores exibidos: reais (Spotify) ou demo
+  const display = realSpotify
+    ? {
+        title: now?.track?.title ?? 'Nada tocando agora',
+        artist: now?.track?.artist ?? 'Dê o play no app do Spotify',
+        cover: now?.track?.cover ?? null,
+        isPlaying: now?.playing ?? false,
+        progressSec: Math.floor((now?.progressMs ?? 0) / 1000),
+        durationSec: Math.floor((now?.track?.durationMs ?? 0) / 1000),
+        link: now?.track?.url ?? 'https://open.spotify.com',
+      }
+    : {
+        title: track.title,
+        artist: track.artist,
+        cover: track.cover,
+        isPlaying: playing,
+        progressSec: progress,
+        durationSec: track.duration,
+        link: provider === 'spotify' ? 'https://open.spotify.com' : 'https://music.youtube.com',
+      }
 
   if (!open) {
     return (
@@ -111,7 +250,7 @@ export function MusicPlayer() {
         title="Player de música"
       >
         <Music2 size={18} style={{ color: 'var(--color-wine-light)' }} />
-        {playing && (
+        {display.isPlaying && (
           <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
         )}
       </motion.button>
@@ -166,7 +305,7 @@ export function MusicPlayer() {
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={() => setProvider('spotify')}
+                    onClick={() => selectProvider('spotify')}
                     className="flex flex-col items-center gap-2 p-3 rounded-2xl cursor-pointer transition-all hover:scale-105"
                     style={{ background: 'rgba(30,215,96,0.08)', border: '1px solid rgba(30,215,96,0.15)' }}
                   >
@@ -176,7 +315,7 @@ export function MusicPlayer() {
                     <span className="text-xs font-medium" style={{ color: '#1DB954' }}>Spotify</span>
                   </button>
                   <button
-                    onClick={() => setProvider('youtube')}
+                    onClick={() => selectProvider('youtube')}
                     className="flex flex-col items-center gap-2 p-3 rounded-2xl cursor-pointer transition-all hover:scale-105"
                     style={{ background: 'rgba(255,0,0,0.08)', border: '1px solid rgba(255,0,0,0.15)' }}
                   >
@@ -186,6 +325,9 @@ export function MusicPlayer() {
                     <span className="text-xs font-medium" style={{ color: '#FF0000' }}>YouTube Music</span>
                   </button>
                 </div>
+                {notice && (
+                  <p className="text-xs text-center mt-3" style={{ color: '#F87171' }}>{notice}</p>
+                )}
               </div>
             ) : (
               <div className="px-4 pb-4 space-y-4">
@@ -194,25 +336,38 @@ export function MusicPlayer() {
                   <div className="flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                     <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                      {provider === 'spotify' ? 'Spotify' : 'YouTube Music'} · demo
+                      {realSpotify
+                        ? `Spotify · ${spotifyName ?? 'conectado'}`
+                        : `${provider === 'spotify' ? 'Spotify' : 'YouTube Music'} · demo`}
                     </span>
                   </div>
-                  <button onClick={() => setProvider(null)} className="text-xs cursor-pointer hover:opacity-70 transition-opacity" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                    Trocar
+                  <button
+                    onClick={() => realSpotify ? disconnectSpotify() : setProvider(null)}
+                    className="text-xs cursor-pointer hover:opacity-70 transition-opacity"
+                    style={{ color: 'rgba(255,255,255,0.3)' }}
+                  >
+                    {realSpotify ? 'Desconectar' : 'Trocar'}
                   </button>
                 </div>
 
                 {/* Cover + track info */}
                 <div className="flex items-center gap-3">
-                  <img
-                    src={track.cover}
-                    alt={track.title}
-                    className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
-                    style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}
-                  />
+                  {display.cover ? (
+                    <img
+                      src={display.cover}
+                      alt={display.title}
+                      className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
+                      style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-xl flex-shrink-0 flex items-center justify-center"
+                      style={{ background: 'rgba(255,255,255,0.06)' }}>
+                      <Music2 size={20} style={{ color: 'rgba(255,255,255,0.25)' }} />
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
-                    <p className="font-heading font-semibold text-sm text-white truncate">{track.title}</p>
-                    <p className="text-xs truncate mt-0.5" style={{ color: 'rgba(255,255,255,0.45)' }}>{track.artist}</p>
+                    <p className="font-heading font-semibold text-sm text-white truncate">{display.title}</p>
+                    <p className="text-xs truncate mt-0.5" style={{ color: 'rgba(255,255,255,0.45)' }}>{display.artist}</p>
                     <div className="flex items-center gap-1 mt-1">
                       <span className="w-1 h-1 rounded-full" style={{ background: provider === 'spotify' ? '#1DB954' : '#FF0000' }} />
                       <span className="text-xs" style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10 }}>
@@ -220,7 +375,7 @@ export function MusicPlayer() {
                       </span>
                     </div>
                   </div>
-                  <a href={provider === 'spotify' ? 'https://open.spotify.com' : 'https://music.youtube.com'} target="_blank" rel="noopener noreferrer"
+                  <a href={display.link} target="_blank" rel="noopener noreferrer"
                     className="p-1.5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors flex-shrink-0"
                     style={{ color: 'rgba(255,255,255,0.3)' }}
                   >
@@ -231,9 +386,10 @@ export function MusicPlayer() {
                 {/* Progress bar */}
                 <div className="space-y-1.5">
                   <div
-                    className="w-full h-1 rounded-full overflow-hidden cursor-pointer"
-                    style={{ background: 'rgba(255,255,255,0.1)' }}
+                    className="w-full h-1 rounded-full overflow-hidden"
+                    style={{ background: 'rgba(255,255,255,0.1)', cursor: realSpotify ? 'default' : 'pointer' }}
                     onClick={e => {
+                      if (realSpotify) return
                       const rect = e.currentTarget.getBoundingClientRect()
                       const pct = (e.clientX - rect.left) / rect.width
                       setProgress(Math.floor(pct * track.duration))
@@ -242,42 +398,54 @@ export function MusicPlayer() {
                     <div
                       className="h-full rounded-full transition-all"
                       style={{
-                        width: `${(progress / track.duration) * 100}%`,
+                        width: display.durationSec > 0 ? `${(display.progressSec / display.durationSec) * 100}%` : '0%',
                         background: provider === 'spotify' ? '#1DB954' : '#FF0000',
                       }}
                     />
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-xs" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>{formatTime(progress)}</span>
-                    <span className="text-xs" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>{formatTime(track.duration)}</span>
+                    <span className="text-xs" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>{formatTime(display.progressSec)}</span>
+                    <span className="text-xs" style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>{formatTime(display.durationSec)}</span>
                   </div>
                 </div>
 
                 {/* Controls */}
                 <div className="flex items-center justify-center gap-4">
-                  <button onClick={() => setShuffle(!shuffle)} className="cursor-pointer transition-colors" style={{ color: shuffle ? 'var(--color-wine-light)' : 'rgba(255,255,255,0.3)' }}>
-                    <Shuffle size={14} />
-                  </button>
-                  <button onClick={prevTrack} className="cursor-pointer hover:text-white transition-colors" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  {!realSpotify && (
+                    <button onClick={() => setShuffle(!shuffle)} className="cursor-pointer transition-colors" style={{ color: shuffle ? 'var(--color-wine-light)' : 'rgba(255,255,255,0.3)' }}>
+                      <Shuffle size={14} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => realSpotify ? control('previous') : prevTrack()}
+                    className="cursor-pointer hover:text-white transition-colors" style={{ color: 'rgba(255,255,255,0.5)' }}>
                     <SkipBack size={18} />
                   </button>
                   <button
-                    onClick={() => setPlaying(!playing)}
+                    onClick={() => realSpotify ? control(display.isPlaying ? 'pause' : 'play') : setPlaying(!playing)}
                     className="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-105 active:scale-95"
                     style={{
                       background: provider === 'spotify' ? '#1DB954' : '#FF0000',
                       boxShadow: `0 4px 16px ${provider === 'spotify' ? 'rgba(29,185,84,0.4)' : 'rgba(255,0,0,0.4)'}`,
                     }}
                   >
-                    {playing ? <Pause size={18} color="white" fill="white" /> : <Play size={18} color="white" fill="white" />}
+                    {display.isPlaying ? <Pause size={18} color="white" fill="white" /> : <Play size={18} color="white" fill="white" />}
                   </button>
-                  <button onClick={nextTrack} className="cursor-pointer hover:text-white transition-colors" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  <button
+                    onClick={() => realSpotify ? control('next') : nextTrack()}
+                    className="cursor-pointer hover:text-white transition-colors" style={{ color: 'rgba(255,255,255,0.5)' }}>
                     <SkipForward size={18} />
                   </button>
-                  <button onClick={() => setRepeat(!repeat)} className="cursor-pointer transition-colors" style={{ color: repeat ? 'var(--color-wine-light)' : 'rgba(255,255,255,0.3)' }}>
-                    <Repeat size={14} />
-                  </button>
+                  {!realSpotify && (
+                    <button onClick={() => setRepeat(!repeat)} className="cursor-pointer transition-colors" style={{ color: repeat ? 'var(--color-wine-light)' : 'rgba(255,255,255,0.3)' }}>
+                      <Repeat size={14} />
+                    </button>
+                  )}
                 </div>
+
+                {notice && (
+                  <p className="text-xs text-center" style={{ color: '#F87171' }}>{notice}</p>
+                )}
 
                 {/* Volume */}
                 <div className="flex items-center gap-2">
@@ -287,6 +455,7 @@ export function MusicPlayer() {
                   <input
                     type="range" min={0} max={100} value={muted ? 0 : volume}
                     onChange={e => { setVolume(+e.target.value); setMuted(false) }}
+                    onPointerUp={() => { if (realSpotify) control('volume', muted ? 0 : volume) }}
                     className="flex-1 h-1 rounded-full cursor-pointer accent-wine-light"
                     style={{ accentColor: 'var(--color-wine-light)' }}
                   />
