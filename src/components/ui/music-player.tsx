@@ -153,6 +153,7 @@ export function MusicPlayer() {
   const noticeRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sdkPlayerRef = useRef<SdkPlayer | null>(null)
   const ytPlayerRef = useRef<YTPlayer | null>(null)
+  const ytLoadedPlaylistRef = useRef('')
 
   const realSpotify = !demo && provider === 'spotify' && spotifyConnected
   const realYoutube = !demo && provider === 'youtube' && ytConnected
@@ -307,11 +308,18 @@ export function MusicPlayer() {
       function create() {
         if (!window.YT?.Player || cancelled) return
         if (ytPlayerRef.current) {
-          try { ytPlayerRef.current.loadPlaylist(ids) } catch {}
+          // idempotente: só recarrega se o usuário trocou de playlist
+          if (ytLoadedPlaylistRef.current !== ytPlaylistId) {
+            try {
+              ytPlayerRef.current.loadPlaylist(ids)
+              ytLoadedPlaylistRef.current = ytPlaylistId
+            } catch {}
+          }
           return
         }
         const el = document.getElementById('yt-music-embed')
         if (!el) return
+        ytLoadedPlaylistRef.current = ytPlaylistId
         ytPlayerRef.current = new window.YT.Player(el, {
           width: '100%',
           height: '158',
@@ -357,6 +365,7 @@ export function MusicPlayer() {
     if ((!open || !realYoutube) && ytPlayerRef.current) {
       try { ytPlayerRef.current.destroy() } catch {}
       ytPlayerRef.current = null
+      ytLoadedPlaylistRef.current = ''
       setYtPlaying(false)
       setYtProgress(0)
     }
