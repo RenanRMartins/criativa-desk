@@ -81,6 +81,10 @@ export function PostCreator({ open, onClose, onSave, defaultDate }: Props) {
   const { accounts } = useSocialAccounts(project?.id)
   const matchingAccounts = accounts.filter(a => selectedNetworks.includes(a.provider))
 
+  const previewFormat = FORMATS.find(f => f.value === watch('format')) ?? FORMATS[0]
+  const previewAspectCss = previewFormat.aspect === '9:16' ? '9 / 16'
+    : previewFormat.aspect === '4:3' ? '4 / 3' : '1 / 1'
+
   // ao mudar as redes (ou carregar as contas), pré-seleciona todas as contas compatíveis
   const matchingKey = matchingAccounts.map(a => a.id).join(',')
   useEffect(() => {
@@ -436,21 +440,30 @@ export function PostCreator({ open, onClose, onSave, defaultDate }: Props) {
                       </div>
                     )}
 
-                    {/* Preview */}
+                    {/* Preview no formato da rede (1:1, 9:16, 4:3) */}
                     <div>
                       <label className="block text-xs font-medium mb-2 uppercase tracking-wider" style={{ color: 'var(--color-gray-text)' }}>Preview</label>
                       <div className="rounded-2xl overflow-hidden" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
-                        {/* Instagram-like preview */}
                         <div className="p-3 border-b flex items-center gap-2" style={{ borderBottomColor: 'var(--color-gray-border)' }}>
                           <div className="w-7 h-7 rounded-full" style={{ background: project?.primaryColor ?? 'var(--color-wine)' }} />
                           <div>
                             <p className="text-xs font-semibold leading-none" style={{ color: 'var(--color-black)' }}>{project?.name?.slice(0, 16) ?? 'Projeto'}</p>
                             <p className="text-xs" style={{ color: 'var(--color-gray-text)', fontSize: 9 }}>agora</p>
                           </div>
+                          <span className="ml-auto text-xs px-2 py-0.5 rounded-full flex-shrink-0"
+                            style={{ background: 'var(--color-wine-subtle)', color: 'var(--color-wine)', fontSize: 9 }}>
+                            {previewFormat.label} · {previewFormat.aspect}
+                          </span>
                         </div>
-                        <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                        <div className="bg-gray-100 flex items-center justify-center overflow-hidden"
+                          style={{
+                            aspectRatio: previewAspectCss,
+                            ...(previewFormat.aspect === '9:16' ? { width: 180, margin: '0 auto' } : {}),
+                          }}>
                           {files[0]?.type === 'image' ? (
                             <img src={files[0].preview} alt="" className="w-full h-full object-cover" />
+                          ) : files[0]?.type === 'video' ? (
+                            <video src={files[0].preview} controls muted playsInline className="w-full h-full object-cover" />
                           ) : (
                             <div className="text-center p-4">
                               <div className="w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center" style={{ background: 'var(--color-gray-border)' }}>

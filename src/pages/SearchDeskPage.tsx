@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { pageVariants } from '@/lib/motionVariants'
 import { motion } from 'motion/react'
-import { Search, Star, Zap, FileText, Video, CalendarPlus } from 'lucide-react'
+import { Search, Star, Zap, FileText, Video, CalendarPlus, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { MOCK_SEARCH_TERMS } from '@/lib/mockData'
+import { useSearchTerms } from '@/hooks/useSearchTerms'
 import { useProjectStore } from '@/store/projectStore'
 import type { SearchTerm } from '@/types'
 
@@ -88,11 +88,7 @@ function SearchTermCard({ term }: { term: SearchTerm }) {
 export default function SearchDeskPage() {
   const { activeProject } = useProjectStore()
   const [query, setQuery] = useState('')
-
-  const terms = MOCK_SEARCH_TERMS.filter(t =>
-    (!activeProject || t.projectId === activeProject.id) &&
-    (!query || t.term.toLowerCase().includes(query.toLowerCase()))
-  )
+  const { terms, loading } = useSearchTerms(activeProject?.id, query)
 
   const featured = terms.find(t => t.isFeatured)
   const rest = terms.filter(t => !t.isFeatured)
@@ -139,9 +135,13 @@ export default function SearchDeskPage() {
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder="Buscar por palavra-chave ou nicho..."
-          className="w-full pl-9 pr-4 py-2.5 rounded-xl border text-sm outline-none"
+          className="w-full pl-9 pr-10 py-2.5 rounded-xl border text-sm outline-none"
           style={{ borderColor: 'var(--color-gray-border)', background: 'white' }}
         />
+        {loading && (
+          <Loader2 size={15} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin"
+            style={{ color: 'var(--color-gray-text)' }} />
+        )}
       </div>
 
       {/* Terms grid */}
