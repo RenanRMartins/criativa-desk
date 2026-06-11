@@ -19,6 +19,39 @@ function getSavedPos() {
 
 function isDemo(token: string | null) { return !token || token.startsWith('demo-token') }
 
+// Tipos mínimos do Spotify Web Playback SDK (carregado via <script>)
+interface SdkTrack {
+  name: string
+  artists: { name: string }[]
+  album: { images: { url: string }[] }
+}
+interface SdkState {
+  paused: boolean
+  position: number
+  duration: number
+  track_window: { current_track: SdkTrack }
+}
+interface SdkPlayer {
+  connect(): Promise<boolean>
+  disconnect(): void
+  setVolume(v: number): Promise<void>
+  addListener(event: 'ready' | 'not_ready', cb: (d: { device_id: string }) => void): void
+  addListener(event: 'player_state_changed', cb: (s: SdkState | null) => void): void
+  addListener(event: 'authentication_error' | 'initialization_error' | 'account_error', cb: (e: { message: string }) => void): void
+}
+declare global {
+  interface Window {
+    onSpotifyWebPlaybackSDKReady?: () => void
+    Spotify?: {
+      Player: new (opts: {
+        name: string
+        getOAuthToken: (cb: (token: string) => void) => void
+        volume?: number
+      }) => SdkPlayer
+    }
+  }
+}
+
 type Provider = 'spotify' | 'youtube' | null
 
 interface Track {
@@ -70,8 +103,11 @@ export function MusicPlayer() {
   const [spotifyName, setSpotifyName] = useState<string | null>(null)
   const [now, setNow] = useState<NowPlaying | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [deviceId, setDeviceId] = useState<string | null>(null)
+  const [sdkActive, setSdkActive] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const noticeRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sdkPlayerRef = useRef<SdkPlayer | null>(null)
 
   const realSpotify = !demo && provider === 'spotify' && spotifyConnected
 
@@ -124,9 +160,68 @@ export function MusicPlayer() {
       .catch(() => {})
   }, [open, demo])
 
-  // Polling da faixa atual (modo real)
+  // Web Playback SDK — o navegador vira um dispositivo Spotify (exige Premium)
   useEffect(() => {
-    if (!realSpotify || !open || minimized) return
+    if (!realSpotify || sdkPlayerRef.current) return
+
+    function init() {
+      if (!window.Spotify || sdkPlayerRef.current) return
+      const player = new window.Spotify.Player({
+        name: 'CrIAtiva Desk',
+        getOAuthToken: cb => {
+          api.get<{ accessToken: string }>('/music/spotify/token')
+            .then(d => cb(d.accessToken))
+            .catch(() => {})
+        },
+        volume: 0.8,
+      })
+      player.addListener('ready', d => setDeviceId(d.device_id))
+      player.addListener('not_ready', () => { setDeviceId(null); setSdkActive(false) })
+      player.addListener('authentication_error', () =>
+        showNotice('Desconecte e conecte o Spotify de novo para tocar no navegador'))
+      player.addListener('account_error', () =>
+        showNotice('Tocar no navegador exige Spotify Premium'))
+      player.addListener('player_state_changed', state => {
+        if (!state) { setSdkActive(false); return }
+        setSdkActive(true)
+        const t = state.track_window.current_track
+        setNow({
+          playing: !state.paused,
+          progressMs: state.position,
+          volume: null,
+          track: {
+            title: t.name,
+            artist: t.artists.map(a => a.name).join(', '),
+            cover: t.album.images.at(-1)?.url ?? null,
+            durationMs: state.duration,
+            url: null,
+          },
+        })
+      })
+      player.connect()
+      sdkPlayerRef.current = player
+    }
+
+    if (window.Spotify) {
+      init()
+    } else {
+      window.onSpotifyWebPlaybackSDKReady = init
+      if (!document.getElementById('spotify-sdk')) {
+        const s = document.createElement('script')
+        s.id = 'spotify-sdk'
+        s.src = 'https://sdk.scdn.co/spotify-player.js'
+        s.async = true
+        document.body.appendChild(s)
+      }
+    }
+  }, [realSpotify])
+
+  // desliga o dispositivo do navegador ao sair da página
+  useEffect(() => () => { sdkPlayerRef.current?.disconnect() }, [])
+
+  // Polling da faixa atual (modo real; pausa quando o SDK está tocando aqui)
+  useEffect(() => {
+    if (!realSpotify || !open || minimized || sdkActive) return
     let active = true
     const load = () =>
       api.get<NowPlaying>('/music/spotify/now-playing')
@@ -135,7 +230,7 @@ export function MusicPlayer() {
     load()
     const id = setInterval(load, 5000)
     return () => { active = false; clearInterval(id) }
-  }, [realSpotify, open, minimized])
+  }, [realSpotify, open, minimized, sdkActive])
 
   // Avanço local do progresso entre polls (modo real)
   useEffect(() => {
@@ -187,9 +282,9 @@ export function MusicPlayer() {
     }
   }
 
-  async function control(action: 'play' | 'pause' | 'next' | 'previous' | 'volume', vol?: number) {
+  async function control(action: 'play' | 'pause' | 'next' | 'previous' | 'volume' | 'transfer', opts?: { volume?: number; deviceId?: string }) {
     try {
-      await api.post('/music/spotify/control', { action, volume: vol })
+      await api.post('/music/spotify/control', { action, ...opts })
       if (action === 'play') setNow(n => n ? { ...n, playing: true } : n)
       if (action === 'pause') setNow(n => n ? { ...n, playing: false } : n)
       if (action === 'next' || action === 'previous') {
@@ -202,8 +297,20 @@ export function MusicPlayer() {
     }
   }
 
+  function changeVolume(v: number) {
+    if (sdkActive && sdkPlayerRef.current) {
+      void sdkPlayerRef.current.setVolume(v / 100)
+    } else {
+      void control('volume', { volume: v })
+    }
+  }
+
   async function disconnectSpotify() {
     try { await api.delete('/music/spotify') } catch {}
+    sdkPlayerRef.current?.disconnect()
+    sdkPlayerRef.current = null
+    setDeviceId(null)
+    setSdkActive(false)
     setSpotifyConnected(false)
     setSpotifyName(null)
     setNow(null)
@@ -443,6 +550,22 @@ export function MusicPlayer() {
                   )}
                 </div>
 
+                {/* Tocar no navegador (Web Playback SDK) */}
+                {realSpotify && deviceId && !sdkActive && (
+                  <button
+                    onClick={() => control('transfer', { deviceId })}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium cursor-pointer transition-all hover:scale-[1.02]"
+                    style={{ background: 'rgba(30,215,96,0.12)', border: '1px solid rgba(30,215,96,0.25)', color: '#1DB954' }}
+                  >
+                    <Volume2 size={13} /> Tocar aqui no navegador
+                  </button>
+                )}
+                {realSpotify && sdkActive && (
+                  <p className="text-xs text-center flex items-center justify-center gap-1.5" style={{ color: '#1DB954' }}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Tocando neste navegador
+                  </p>
+                )}
+
                 {notice && (
                   <p className="text-xs text-center" style={{ color: '#F87171' }}>{notice}</p>
                 )}
@@ -455,7 +578,7 @@ export function MusicPlayer() {
                   <input
                     type="range" min={0} max={100} value={muted ? 0 : volume}
                     onChange={e => { setVolume(+e.target.value); setMuted(false) }}
-                    onPointerUp={() => { if (realSpotify) control('volume', muted ? 0 : volume) }}
+                    onPointerUp={() => { if (realSpotify) changeVolume(muted ? 0 : volume) }}
                     className="flex-1 h-1 rounded-full cursor-pointer accent-wine-light"
                     style={{ accentColor: 'var(--color-wine-light)' }}
                   />

@@ -5,7 +5,7 @@ import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
 const router = Router()
 
 const SPOTIFY_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/music/spotify/callback`
-const SPOTIFY_SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-private'
+const SPOTIFY_SCOPES = 'streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing'
 
 function basicAuth() {
   return Buffer.from(`${process.env['SPOT_ID'] ?? ''}:${process.env['SPOT_SEC'] ?? ''}`).toString('base64')
@@ -164,35 +164,59 @@ router.get('/spotify/now-playing', authMiddleware, async (req: AuthRequest, res:
   })
 })
 
-// POST /api/music/spotify/control { action: 'play'|'pause'|'next'|'previous'|'volume', volume? }
+// Token de acesso para o Web Playback SDK (toca no navegador)
+router.get('/spotify/token', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const token = await getSpotifyToken(req.userId!)
+  if (!token) { res.status(404).json({ message: 'Spotify não conectado' }); return }
+  res.json({ accessToken: token })
+})
+
+// POST /api/music/spotify/control { action: 'play'|'pause'|'next'|'previous'|'volume'|'transfer', volume?, deviceId? }
 router.post('/spotify/control', authMiddleware, async (req: AuthRequest, res: Response) => {
   const token = await getSpotifyToken(req.userId!)
   if (!token) { res.status(404).json({ message: 'Spotify não conectado' }); return }
 
-  const { action, volume } = (req.body ?? {}) as { action?: string; volume?: number }
-  const calls: Record<string, { method: string; path: string }> = {
-    play: { method: 'PUT', path: '/me/player/play' },
-    pause: { method: 'PUT', path: '/me/player/pause' },
-    next: { method: 'POST', path: '/me/player/next' },
-    previous: { method: 'POST', path: '/me/player/previous' },
-    volume: { method: 'PUT', path: `/me/player/volume?volume_percent=${Math.max(0, Math.min(100, volume ?? 50))}` },
-  }
-  const call = action ? calls[action] : undefined
-  if (!call) { res.status(400).json({ message: 'Ação inválida' }); return }
+  const { action, volume, deviceId } = (req.body ?? {}) as { action?: string; volume?: number; deviceId?: string }
 
-  const r = await fetch(`https://api.spotify.com/v1${call.path}`, {
-    method: call.method,
-    headers: { Authorization: `Bearer ${token}` },
+  let method = 'PUT'
+  let path = ''
+  let body: string | undefined
+  switch (action) {
+    case 'play': path = '/me/player/play'; break
+    case 'pause': path = '/me/player/pause'; break
+    case 'next': method = 'POST'; path = '/me/player/next'; break
+    case 'previous': method = 'POST'; path = '/me/player/previous'; break
+    case 'volume': path = `/me/player/volume?volume_percent=${Math.max(0, Math.min(100, volume ?? 50))}`; break
+    case 'transfer':
+      if (!deviceId) { res.status(400).json({ message: 'deviceId obrigatório' }); return }
+      path = '/me/player'
+      body = JSON.stringify({ device_ids: [deviceId], play: true })
+      break
+    default:
+      res.status(400).json({ message: 'Ação inválida' })
+      return
+  }
+
+  const r = await fetch(`https://api.spotify.com/v1${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body,
   })
-  if (r.status === 403) {
-    res.status(403).json({ message: 'Controle remoto exige Spotify Premium' })
+  if (!r.ok) {
+    // repassa o motivo real do Spotify (403 nem sempre é falta de Premium)
+    const err = await r.json().catch(() => null) as { error?: { message?: string; reason?: string } } | null
+    const message = err?.error?.reason === 'PREMIUM_REQUIRED'
+      ? 'Controle remoto exige Spotify Premium'
+      : r.status === 404
+        ? 'Nenhum dispositivo ativo — toque algo no Spotify ou clique em "Tocar aqui"'
+        : err?.error?.message ?? 'Erro no controle do Spotify'
+    res.status(r.status).json({ message })
     return
   }
-  if (r.status === 404) {
-    res.status(404).json({ message: 'Nenhum dispositivo ativo — dê o play no app do Spotify primeiro' })
-    return
-  }
-  res.json({ ok: r.ok })
+  res.json({ ok: true })
 })
 
 // DELETE /api/music/spotify
