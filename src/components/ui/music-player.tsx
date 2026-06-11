@@ -49,7 +49,7 @@ interface YTPlayer {
   getCurrentTime(): number
   getDuration(): number
   getVideoData(): { title?: string; author?: string }
-  loadPlaylist(opts: { list: string; listType: 'playlist' }): void
+  loadPlaylist(videoIds: string[]): void
   destroy(): void
 }
 interface YTPlayerEvent { target: YTPlayer; data?: number }
@@ -286,48 +286,65 @@ export function MusicPlayer() {
       .catch(() => setYtPlaylists([]))
   }, [realYoutube])
 
-  // Player embutido do YouTube (IFrame API) na playlist escolhida
+  // Player embutido do YouTube (IFrame API) na playlist escolhida.
+  // Carrega por IDs de vídeo (via API autenticada) — funciona com playlists privadas.
   useEffect(() => {
     if (!realYoutube || !ytPlaylistId || !open || minimized) return
+    let cancelled = false
 
-    function create() {
-      if (!window.YT?.Player) return
-      if (ytPlayerRef.current) {
-        try { ytPlayerRef.current.loadPlaylist({ list: ytPlaylistId, listType: 'playlist' }) } catch {}
+    async function load() {
+      let ids: string[] = []
+      try {
+        ids = await api.get<string[]>(`/music/youtube/playlist-items?playlistId=${ytPlaylistId}`)
+      } catch {
+        showNotice('Não foi possível carregar a playlist')
         return
       }
-      const el = document.getElementById('yt-music-embed')
-      if (!el) return
-      ytPlayerRef.current = new window.YT.Player(el, {
-        width: '100%',
-        height: '158',
-        playerVars: { listType: 'playlist', list: ytPlaylistId },
-        events: {
-          onReady: e => e.target.setVolume(volume),
-          onStateChange: e => {
-            setYtPlaying(e.data === window.YT?.PlayerState.PLAYING)
-            try {
-              const d = e.target.getVideoData()
-              if (d?.title) setYtTrack({ title: d.title, author: d.author ?? 'YouTube' })
-              setYtDuration(Math.floor(e.target.getDuration() || 0))
-            } catch {}
-          },
-        },
-      })
-    }
+      if (cancelled) return
+      if (ids.length === 0) { showNotice('Playlist vazia ou com vídeos indisponíveis'); return }
 
-    if (window.YT?.Player) {
-      create()
-    } else {
-      window.onYouTubeIframeAPIReady = create
-      if (!document.getElementById('yt-iframe-api')) {
-        const s = document.createElement('script')
-        s.id = 'yt-iframe-api'
-        s.src = 'https://www.youtube.com/iframe_api'
-        s.async = true
-        document.body.appendChild(s)
+      function create() {
+        if (!window.YT?.Player || cancelled) return
+        if (ytPlayerRef.current) {
+          try { ytPlayerRef.current.loadPlaylist(ids) } catch {}
+          return
+        }
+        const el = document.getElementById('yt-music-embed')
+        if (!el) return
+        ytPlayerRef.current = new window.YT.Player(el, {
+          width: '100%',
+          height: '158',
+          playerVars: { playlist: ids.join(',') },
+          events: {
+            onReady: e => e.target.setVolume(volume),
+            onStateChange: e => {
+              setYtPlaying(e.data === window.YT?.PlayerState.PLAYING)
+              try {
+                const d = e.target.getVideoData()
+                if (d?.title) setYtTrack({ title: d.title, author: d.author ?? 'YouTube' })
+                setYtDuration(Math.floor(e.target.getDuration() || 0))
+              } catch {}
+            },
+          },
+        })
+      }
+
+      if (window.YT?.Player) {
+        create()
+      } else {
+        window.onYouTubeIframeAPIReady = create
+        if (!document.getElementById('yt-iframe-api')) {
+          const s = document.createElement('script')
+          s.id = 'yt-iframe-api'
+          s.src = 'https://www.youtube.com/iframe_api'
+          s.async = true
+          document.body.appendChild(s)
+        }
       }
     }
+
+    void load()
+    return () => { cancelled = true }
   }, [realYoutube, ytPlaylistId, open, minimized])
 
   // destrói o player do YouTube quando o painel sai de cena (o iframe vai junto com o DOM)

@@ -244,6 +244,29 @@ router.get('/youtube/playlists', authMiddleware, async (req: AuthRequest, res: R
   }
 })
 
+// GET /api/music/youtube/playlist-items?playlistId=xxx
+// IDs dos vídeos via API autenticada — funciona com playlists privadas,
+// que o player embutido (anônimo) não consegue abrir por ID de playlist
+router.get('/youtube/playlist-items', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const auth = await getYoutubeAuth(req.userId!)
+  if (!auth) { res.status(404).json({ message: 'YouTube não conectado' }); return }
+
+  const playlistId = req.query.playlistId as string
+  if (!playlistId) { res.status(400).json({ message: 'playlistId obrigatório' }); return }
+
+  try {
+    const yt = google.youtube({ version: 'v3', auth })
+    const r = await yt.playlistItems.list({ part: ['contentDetails'], playlistId, maxResults: 50 })
+    const ids = (r.data.items ?? [])
+      .map(i => i.contentDetails?.videoId)
+      .filter((v): v is string => !!v)
+    res.json(ids)
+  } catch (err) {
+    console.error('YouTube playlist items error:', err)
+    res.status(500).json({ message: 'Erro ao carregar a playlist' })
+  }
+})
+
 // DELETE /api/music/youtube
 router.delete('/youtube', authMiddleware, async (req: AuthRequest, res: Response) => {
   await prisma.musicConnection.deleteMany({ where: { userId: req.userId!, provider: 'YOUTUBE' } })
