@@ -1,9 +1,23 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { pageVariants } from '@/lib/motionVariants'
 import { motion, AnimatePresence } from 'motion/react'
-import { Palette, ExternalLink, ChevronRight, Check, Sparkles, Upload, Layout } from 'lucide-react'
+import { Palette, ExternalLink, ChevronRight, Check, Sparkles, Upload, Layout, Loader2 } from 'lucide-react'
 import { FORMAT_LABELS } from '@/lib/constants'
+import { useAuthStore } from '@/store/authStore'
+import { useProjectStore } from '@/store/projectStore'
+import { api } from '@/lib/api'
 import type { PostFormat } from '@/types'
+
+// dimensões reais por formato para o design criado no Canva
+const CANVA_DIMENSIONS: Partial<Record<PostFormat, { w: number; h: number }>> = {
+  FEED_INSTAGRAM: { w: 1080, h: 1080 },
+  REELS_INSTAGRAM: { w: 1080, h: 1920 },
+  STORIES_INSTAGRAM: { w: 1080, h: 1920 },
+  CAROUSEL_INSTAGRAM: { w: 1080, h: 1080 },
+  GOOGLE_POST: { w: 1200, h: 900 },
+}
+
+function isDemo(token: string | null) { return !token || token.startsWith('demo-token') }
 
 const FORMAT_STEPS: { label: string; format: PostFormat; aspect: string; w: number; h: number; desc: string }[] = [
   { label: 'Feed Instagram 1:1', format: 'FEED_INSTAGRAM', aspect: '1:1', w: 48, h: 48, desc: 'Post quadrado' },
@@ -28,10 +42,65 @@ const MOCK_TEMPLATES = [
 ]
 
 export default function DesignDeskPage() {
+  const { token } = useAuthStore()
+  const { activeProject } = useProjectStore()
   const [step, setStep] = useState(0)
   const [selectedFormat, setSelectedFormat] = useState<PostFormat | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState<number | null>(null)
   const [caption, setCaption] = useState('')
+  const [canvaConnected, setCanvaConnected] = useState(false)
+  const [canvaBusy, setCanvaBusy] = useState(false)
+  const [canvaNotice, setCanvaNotice] = useState<string | null>(null)
+
+  // volta do OAuth do Canva
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('canva_success')) {
+      setCanvaNotice('Canva conectado! Clique em "Abrir no Canva" para criar a arte.')
+      window.history.replaceState({}, '', '/designdesk')
+    } else if (params.get('canva_error')) {
+      setCanvaNotice('Não foi possível conectar o Canva. Tente novamente.')
+      window.history.replaceState({}, '', '/designdesk')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isDemo(token)) return
+    api.get<{ connected: boolean }>('/canva/status')
+      .then(s => setCanvaConnected(s.connected))
+      .catch(() => {})
+  }, [token])
+
+  async function openInCanva() {
+    if (isDemo(token)) {
+      window.open('https://www.canva.com', '_blank', 'noopener')
+      return
+    }
+    setCanvaBusy(true)
+    setCanvaNotice(null)
+    try {
+      if (!canvaConnected) {
+        const { url } = await api.get<{ url: string }>('/canva/auth-url')
+        window.location.href = url
+        return
+      }
+      const dims = (selectedFormat && CANVA_DIMENSIONS[selectedFormat]) ?? { w: 1080, h: 1080 }
+      const title = `${activeProject?.name ?? 'CrIAtiva Desk'} — ${selectedFormat ? FORMAT_LABELS[selectedFormat] : 'Arte'}`
+      const design = await api.post<{ editUrl: string | null }>('/canva/create-design', {
+        title, width: dims.w, height: dims.h,
+      })
+      if (design.editUrl) {
+        window.open(design.editUrl, '_blank', 'noopener')
+        setCanvaNotice('Design criado! Edite no Canva e depois clique em "Já tenho a arte".')
+      } else {
+        setCanvaNotice('Design criado, mas o Canva não retornou o link de edição.')
+      }
+    } catch (e) {
+      setCanvaNotice(e instanceof Error ? e.message : 'Erro ao abrir o Canva')
+    } finally {
+      setCanvaBusy(false)
+    }
+  }
 
   const canProceed = step === 0
     ? selectedFormat !== null
@@ -257,10 +326,13 @@ export default function DesignDeskPage() {
               </p>
               <div className="flex justify-center gap-3">
                 <button
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-white font-semibold cursor-pointer transition-opacity hover:opacity-90"
+                  onClick={openInCanva}
+                  disabled={canvaBusy}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-white font-semibold cursor-pointer transition-opacity hover:opacity-90 disabled:opacity-60"
                   style={{ background: '#7C3AED', boxShadow: '0 4px 16px rgba(124,58,237,0.35)' }}
                 >
-                  <ExternalLink size={16} /> Abrir no Canva
+                  {canvaBusy ? <Loader2 size={16} className="animate-spin" /> : <ExternalLink size={16} />}
+                  {!isDemo(token) && !canvaConnected ? 'Conectar Canva' : 'Abrir no Canva'}
                 </button>
                 <button
                   className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium cursor-pointer border transition-colors hover:bg-gray-50"
@@ -270,6 +342,9 @@ export default function DesignDeskPage() {
                   <Upload size={16} /> Já tenho a arte
                 </button>
               </div>
+              {canvaNotice && (
+                <p className="text-xs mt-4" style={{ color: 'var(--color-gray-text)' }}>{canvaNotice}</p>
+              )}
             </div>
           )}
 

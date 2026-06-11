@@ -138,7 +138,22 @@ model User {
   copySessions        CopySession[]
   notifications       Notification[]
   musicConnections    MusicConnection[]
+  appConnections      AppConnection[]
   createdAt           DateTime        @default(now())
+}
+
+model AppConnection {
+  id           String    @id @default(cuid())
+  userId       String
+  provider     String
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  profileName  String?
+  user         User      @relation(fields: [userId], references: [id])
+  createdAt    DateTime  @default(now())
+
+  @@unique([userId, provider])
 }
 
 model MusicConnection {
