@@ -39,6 +39,21 @@ interface SdkPlayer {
   addListener(event: 'player_state_changed', cb: (s: SdkState | null) => void): void
   addListener(event: 'authentication_error' | 'initialization_error' | 'account_error', cb: (e: { message: string }) => void): void
 }
+// Tipos mínimos do YouTube IFrame Player API
+interface YTPlayer {
+  playVideo(): void
+  pauseVideo(): void
+  nextVideo(): void
+  previousVideo(): void
+  setVolume(v: number): void
+  getCurrentTime(): number
+  getDuration(): number
+  getVideoData(): { title?: string; author?: string }
+  loadPlaylist(opts: { list: string; listType: 'playlist' }): void
+  destroy(): void
+}
+interface YTPlayerEvent { target: YTPlayer; data?: number }
+
 declare global {
   interface Window {
     onSpotifyWebPlaybackSDKReady?: () => void
@@ -49,7 +64,27 @@ declare global {
         volume?: number
       }) => SdkPlayer
     }
+    onYouTubeIframeAPIReady?: () => void
+    YT?: {
+      Player: new (el: string | HTMLElement, opts: {
+        width?: string | number
+        height?: string | number
+        playerVars?: Record<string, string | number>
+        events?: {
+          onReady?: (e: YTPlayerEvent) => void
+          onStateChange?: (e: YTPlayerEvent) => void
+        }
+      }) => YTPlayer
+      PlayerState: { PLAYING: number }
+    }
   }
+}
+
+interface YTPlaylist {
+  id: string
+  title: string
+  count: number
+  thumb: string | null
 }
 
 type Provider = 'spotify' | 'youtube' | null
@@ -105,11 +140,22 @@ export function MusicPlayer() {
   const [notice, setNotice] = useState<string | null>(null)
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [sdkActive, setSdkActive] = useState(false)
+  const [ytConnected, setYtConnected] = useState(false)
+  const [ytName, setYtName] = useState<string | null>(null)
+  const [ytPlaylists, setYtPlaylists] = useState<YTPlaylist[]>([])
+  const [ytPlaylistId, setYtPlaylistId] = useState('')
+  const [ytPlaying, setYtPlaying] = useState(false)
+  const [ytTrack, setYtTrack] = useState<{ title: string; author: string } | null>(null)
+  const [ytProgress, setYtProgress] = useState(0)
+  const [ytDuration, setYtDuration] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const noticeRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sdkPlayerRef = useRef<SdkPlayer | null>(null)
+  const ytPlayerRef = useRef<YTPlayer | null>(null)
 
   const realSpotify = !demo && provider === 'spotify' && spotifyConnected
+  const realYoutube = !demo && provider === 'youtube' && ytConnected
+  const realMode = realSpotify || realYoutube
 
   const saved = getSavedPos()
   const x = useMotionValue(saved.x)
@@ -135,27 +181,34 @@ export function MusicPlayer() {
     noticeRef.current = setTimeout(() => setNotice(null), 4000)
   }
 
-  // Volta do OAuth do Spotify (?music_success / ?music_error)
+  // Volta do OAuth (?music_success=spotify|youtube / ?music_error)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('music_success')) {
+    const success = params.get('music_success')
+    if (success) {
       setOpen(true)
+      if (success === 'youtube') setProvider('youtube')
       window.history.replaceState({}, '', window.location.pathname)
     } else if (params.get('music_error')) {
       setOpen(true)
-      showNotice('Não foi possível conectar o Spotify. Tente novamente.')
+      showNotice('Não foi possível conectar. Tente novamente.')
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [])
 
-  // Status da conexão Spotify ao abrir o player
+  // Status das conexões ao abrir o player
   useEffect(() => {
     if (!open || demo) return
-    api.get<{ connected: boolean; profileName: string | null }>('/music/status')
+    api.get<{
+      spotify: { connected: boolean; profileName: string | null }
+      youtube: { connected: boolean; profileName: string | null }
+    }>('/music/status')
       .then(s => {
-        setSpotifyConnected(s.connected)
-        setSpotifyName(s.profileName)
-        if (s.connected) setProvider('spotify')
+        setSpotifyConnected(s.spotify.connected)
+        setSpotifyName(s.spotify.profileName)
+        setYtConnected(s.youtube.connected)
+        setYtName(s.youtube.profileName)
+        setProvider(p => p ?? (s.spotify.connected ? 'spotify' : s.youtube.connected ? 'youtube' : null))
       })
       .catch(() => {})
   }, [open, demo])
@@ -216,8 +269,94 @@ export function MusicPlayer() {
     }
   }, [realSpotify])
 
-  // desliga o dispositivo do navegador ao sair da página
-  useEffect(() => () => { sdkPlayerRef.current?.disconnect() }, [])
+  // desliga os players ao sair da página
+  useEffect(() => () => {
+    sdkPlayerRef.current?.disconnect()
+    try { ytPlayerRef.current?.destroy() } catch {}
+  }, [])
+
+  // Playlists do YouTube ao entrar no modo real
+  useEffect(() => {
+    if (!realYoutube) return
+    api.get<YTPlaylist[]>('/music/youtube/playlists')
+      .then(pl => {
+        setYtPlaylists(pl)
+        setYtPlaylistId(prev => prev || (pl[0]?.id ?? ''))
+      })
+      .catch(() => setYtPlaylists([]))
+  }, [realYoutube])
+
+  // Player embutido do YouTube (IFrame API) na playlist escolhida
+  useEffect(() => {
+    if (!realYoutube || !ytPlaylistId || !open || minimized) return
+
+    function create() {
+      if (!window.YT?.Player) return
+      if (ytPlayerRef.current) {
+        try { ytPlayerRef.current.loadPlaylist({ list: ytPlaylistId, listType: 'playlist' }) } catch {}
+        return
+      }
+      const el = document.getElementById('yt-music-embed')
+      if (!el) return
+      ytPlayerRef.current = new window.YT.Player(el, {
+        width: '100%',
+        height: '158',
+        playerVars: { listType: 'playlist', list: ytPlaylistId },
+        events: {
+          onReady: e => e.target.setVolume(volume),
+          onStateChange: e => {
+            setYtPlaying(e.data === window.YT?.PlayerState.PLAYING)
+            try {
+              const d = e.target.getVideoData()
+              if (d?.title) setYtTrack({ title: d.title, author: d.author ?? 'YouTube' })
+              setYtDuration(Math.floor(e.target.getDuration() || 0))
+            } catch {}
+          },
+        },
+      })
+    }
+
+    if (window.YT?.Player) {
+      create()
+    } else {
+      window.onYouTubeIframeAPIReady = create
+      if (!document.getElementById('yt-iframe-api')) {
+        const s = document.createElement('script')
+        s.id = 'yt-iframe-api'
+        s.src = 'https://www.youtube.com/iframe_api'
+        s.async = true
+        document.body.appendChild(s)
+      }
+    }
+  }, [realYoutube, ytPlaylistId, open, minimized])
+
+  // destrói o player do YouTube quando o painel sai de cena (o iframe vai junto com o DOM)
+  useEffect(() => {
+    if ((!open || minimized || !realYoutube) && ytPlayerRef.current) {
+      try { ytPlayerRef.current.destroy() } catch {}
+      ytPlayerRef.current = null
+      setYtPlaying(false)
+      setYtProgress(0)
+    }
+  }, [open, minimized, realYoutube])
+
+  // progresso do YouTube (1s)
+  useEffect(() => {
+    if (!realYoutube) return
+    const id = setInterval(() => {
+      const p = ytPlayerRef.current
+      if (!p) return
+      try {
+        setYtProgress(Math.floor(p.getCurrentTime() || 0))
+        setYtDuration(Math.floor(p.getDuration() || 0))
+        const d = p.getVideoData()
+        if (d?.title) {
+          setYtTrack(t => t?.title === d.title ? t : { title: d.title!, author: d.author ?? 'YouTube' })
+        }
+      } catch {}
+    }, 1000)
+    return () => clearInterval(id)
+  }, [realYoutube])
 
   // Polling da faixa atual (modo real; pausa quando o SDK está tocando aqui)
   useEffect(() => {
@@ -272,14 +411,48 @@ export function MusicPlayer() {
   }
 
   async function selectProvider(p: Exclude<Provider, null>) {
-    if (p === 'youtube' || demo) { setProvider(p); return }
-    if (spotifyConnected) { setProvider('spotify'); return }
+    if (demo) { setProvider(p); return }
+    if (p === 'spotify') {
+      if (spotifyConnected) { setProvider('spotify'); return }
+      try {
+        const { url } = await api.get<{ url: string }>('/music/spotify/auth-url')
+        window.location.href = url
+      } catch (e) {
+        showNotice(e instanceof Error ? e.message : 'Spotify indisponível')
+      }
+      return
+    }
+    if (ytConnected) { setProvider('youtube'); return }
     try {
-      const { url } = await api.get<{ url: string }>('/music/spotify/auth-url')
+      const { url } = await api.get<{ url: string }>('/music/youtube/auth-url')
       window.location.href = url
     } catch (e) {
-      showNotice(e instanceof Error ? e.message : 'Spotify indisponível')
+      showNotice(e instanceof Error ? e.message : 'YouTube indisponível')
     }
+  }
+
+  function ytControl(action: 'play' | 'pause' | 'next' | 'previous') {
+    const p = ytPlayerRef.current
+    if (!p) return
+    try {
+      if (action === 'play') p.playVideo()
+      if (action === 'pause') p.pauseVideo()
+      if (action === 'next') p.nextVideo()
+      if (action === 'previous') p.previousVideo()
+    } catch {}
+  }
+
+  async function disconnectYoutube() {
+    try { await api.delete('/music/youtube') } catch {}
+    try { ytPlayerRef.current?.destroy() } catch {}
+    ytPlayerRef.current = null
+    setYtConnected(false)
+    setYtName(null)
+    setYtTrack(null)
+    setYtPlaying(false)
+    setYtPlaylists([])
+    setYtPlaylistId('')
+    setProvider(null)
   }
 
   async function control(action: 'play' | 'pause' | 'next' | 'previous' | 'volume' | 'transfer', opts?: { volume?: number; deviceId?: string }) {
@@ -298,7 +471,9 @@ export function MusicPlayer() {
   }
 
   function changeVolume(v: number) {
-    if (sdkActive && sdkPlayerRef.current) {
+    if (realYoutube) {
+      try { ytPlayerRef.current?.setVolume(v) } catch {}
+    } else if (sdkActive && sdkPlayerRef.current) {
       void sdkPlayerRef.current.setVolume(v / 100)
     } else {
       void control('volume', { volume: v })
@@ -317,7 +492,7 @@ export function MusicPlayer() {
     setProvider(null)
   }
 
-  // Valores exibidos: reais (Spotify) ou demo
+  // Valores exibidos: reais (Spotify/YouTube) ou demo
   const display = realSpotify
     ? {
         title: now?.track?.title ?? 'Nada tocando agora',
@@ -327,6 +502,16 @@ export function MusicPlayer() {
         progressSec: Math.floor((now?.progressMs ?? 0) / 1000),
         durationSec: Math.floor((now?.track?.durationMs ?? 0) / 1000),
         link: now?.track?.url ?? 'https://open.spotify.com',
+      }
+    : realYoutube
+    ? {
+        title: ytTrack?.title ?? (ytPlaylists.length === 0 ? 'Carregando playlists…' : 'Dê o play no vídeo acima'),
+        artist: ytTrack?.author ?? (ytName ?? 'YouTube'),
+        cover: null,
+        isPlaying: ytPlaying,
+        progressSec: ytProgress,
+        durationSec: ytDuration,
+        link: 'https://music.youtube.com',
       }
     : {
         title: track.title,
@@ -445,17 +630,60 @@ export function MusicPlayer() {
                     <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
                       {realSpotify
                         ? `Spotify · ${spotifyName ?? 'conectado'}`
+                        : realYoutube
+                        ? `YouTube · ${ytName ?? 'conectado'}`
                         : `${provider === 'spotify' ? 'Spotify' : 'YouTube Music'} · demo`}
                     </span>
                   </div>
-                  <button
-                    onClick={() => realSpotify ? disconnectSpotify() : setProvider(null)}
-                    className="text-xs cursor-pointer hover:opacity-70 transition-opacity"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}
-                  >
-                    {realSpotify ? 'Desconectar' : 'Trocar'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {realMode && (
+                      <button
+                        onClick={() => setProvider(null)}
+                        className="text-xs cursor-pointer hover:opacity-70 transition-opacity"
+                        style={{ color: 'rgba(255,255,255,0.3)' }}
+                      >
+                        Trocar
+                      </button>
+                    )}
+                    <button
+                      onClick={() => realSpotify ? disconnectSpotify() : realYoutube ? disconnectYoutube() : setProvider(null)}
+                      className="text-xs cursor-pointer hover:opacity-70 transition-opacity"
+                      style={{ color: 'rgba(255,255,255,0.3)' }}
+                    >
+                      {realMode ? 'Desconectar' : 'Trocar'}
+                    </button>
+                  </div>
                 </div>
+
+                {/* YouTube: playlist + player embutido */}
+                {realYoutube && (
+                  <>
+                    {ytPlaylists.length > 0 && (
+                      <select
+                        value={ytPlaylistId}
+                        onChange={e => setYtPlaylistId(e.target.value)}
+                        className="w-full px-2.5 py-2 rounded-xl text-xs outline-none cursor-pointer"
+                        style={{ background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.1)' }}
+                      >
+                        {ytPlaylists.map(p => (
+                          <option key={p.id} value={p.id} style={{ color: 'black' }}>
+                            {p.title} ({p.count})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {ytPlaylists.length === 0 && (
+                      <p className="text-xs text-center" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                        Nenhuma playlist encontrada — crie uma no YouTube e reabra o player
+                      </p>
+                    )}
+                    {ytPlaylistId && (
+                      <div className="w-full rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                        <div id="yt-music-embed" />
+                      </div>
+                    )}
+                  </>
+                )}
 
                 {/* Cover + track info */}
                 <div className="flex items-center gap-3">
@@ -494,9 +722,9 @@ export function MusicPlayer() {
                 <div className="space-y-1.5">
                   <div
                     className="w-full h-1 rounded-full overflow-hidden"
-                    style={{ background: 'rgba(255,255,255,0.1)', cursor: realSpotify ? 'default' : 'pointer' }}
+                    style={{ background: 'rgba(255,255,255,0.1)', cursor: realMode ? 'default' : 'pointer' }}
                     onClick={e => {
-                      if (realSpotify) return
+                      if (realMode) return
                       const rect = e.currentTarget.getBoundingClientRect()
                       const pct = (e.clientX - rect.left) / rect.width
                       setProgress(Math.floor(pct * track.duration))
@@ -518,18 +746,22 @@ export function MusicPlayer() {
 
                 {/* Controls */}
                 <div className="flex items-center justify-center gap-4">
-                  {!realSpotify && (
+                  {!realMode && (
                     <button onClick={() => setShuffle(!shuffle)} className="cursor-pointer transition-colors" style={{ color: shuffle ? 'var(--color-wine-light)' : 'rgba(255,255,255,0.3)' }}>
                       <Shuffle size={14} />
                     </button>
                   )}
                   <button
-                    onClick={() => realSpotify ? control('previous') : prevTrack()}
+                    onClick={() => realSpotify ? control('previous') : realYoutube ? ytControl('previous') : prevTrack()}
                     className="cursor-pointer hover:text-white transition-colors" style={{ color: 'rgba(255,255,255,0.5)' }}>
                     <SkipBack size={18} />
                   </button>
                   <button
-                    onClick={() => realSpotify ? control(display.isPlaying ? 'pause' : 'play') : setPlaying(!playing)}
+                    onClick={() => realSpotify
+                      ? control(display.isPlaying ? 'pause' : 'play')
+                      : realYoutube
+                      ? ytControl(display.isPlaying ? 'pause' : 'play')
+                      : setPlaying(!playing)}
                     className="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-105 active:scale-95"
                     style={{
                       background: provider === 'spotify' ? '#1DB954' : '#FF0000',
@@ -539,11 +771,11 @@ export function MusicPlayer() {
                     {display.isPlaying ? <Pause size={18} color="white" fill="white" /> : <Play size={18} color="white" fill="white" />}
                   </button>
                   <button
-                    onClick={() => realSpotify ? control('next') : nextTrack()}
+                    onClick={() => realSpotify ? control('next') : realYoutube ? ytControl('next') : nextTrack()}
                     className="cursor-pointer hover:text-white transition-colors" style={{ color: 'rgba(255,255,255,0.5)' }}>
                     <SkipForward size={18} />
                   </button>
-                  {!realSpotify && (
+                  {!realMode && (
                     <button onClick={() => setRepeat(!repeat)} className="cursor-pointer transition-colors" style={{ color: repeat ? 'var(--color-wine-light)' : 'rgba(255,255,255,0.3)' }}>
                       <Repeat size={14} />
                     </button>

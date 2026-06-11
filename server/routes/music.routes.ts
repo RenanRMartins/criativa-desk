@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express'
+import { google } from 'googleapis'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
 
@@ -118,13 +119,135 @@ router.get('/spotify/callback', async (req: Request, res: Response) => {
   }
 })
 
-// GET /api/music/status
+// GET /api/music/status — estado das duas conexões
 router.get('/status', authMiddleware, async (req: AuthRequest, res: Response) => {
-  const conn = await prisma.musicConnection.findUnique({
-    where: { userId_provider: { userId: req.userId!, provider: 'SPOTIFY' } },
-    select: { profileName: true },
+  const conns = await prisma.musicConnection.findMany({
+    where: { userId: req.userId! },
+    select: { provider: true, profileName: true },
   })
-  res.json({ connected: !!conn, profileName: conn?.profileName ?? null })
+  const sp = conns.find(c => c.provider === 'SPOTIFY')
+  const yt = conns.find(c => c.provider === 'YOUTUBE')
+  res.json({
+    spotify: { connected: !!sp, profileName: sp?.profileName ?? null },
+    youtube: { connected: !!yt, profileName: yt?.profileName ?? null },
+  })
+})
+
+// ─── YOUTUBE MUSIC (OAuth Google + player embutido no frontend) ───────────────
+
+const YT_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/music/youtube/callback`
+
+function ytOAuthClient() {
+  return new google.auth.OAuth2(process.env['GAUTH_ID'], process.env['GAUTH_SEC'], YT_REDIRECT)
+}
+
+// Cliente autenticado do usuário; persiste tokens renovados pelo googleapis
+async function getYoutubeAuth(userId: string) {
+  const conn = await prisma.musicConnection.findUnique({
+    where: { userId_provider: { userId, provider: 'YOUTUBE' } },
+  })
+  if (!conn) return null
+  const client = ytOAuthClient()
+  client.setCredentials({
+    access_token: conn.accessToken,
+    refresh_token: conn.refreshToken ?? undefined,
+  })
+  client.on('tokens', tokens => {
+    void prisma.musicConnection.update({
+      where: { id: conn.id },
+      data: {
+        accessToken: tokens.access_token ?? conn.accessToken,
+        refreshToken: tokens.refresh_token ?? conn.refreshToken,
+        expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : conn.expiresAt,
+      },
+    }).catch(() => {})
+  })
+  return client
+}
+
+// GET /api/music/youtube/auth-url
+router.get('/youtube/auth-url', authMiddleware, (req: AuthRequest, res: Response) => {
+  if (!process.env['GAUTH_ID']) {
+    res.status(503).json({ message: 'Google OAuth não configurado' })
+    return
+  }
+  const state = Buffer.from(JSON.stringify({ userId: req.userId })).toString('base64url')
+  const url = ytOAuthClient().generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: ['https://www.googleapis.com/auth/youtube.readonly'],
+    state,
+  })
+  res.json({ url })
+})
+
+// GET /api/music/youtube/callback (redirect do Google)
+router.get('/youtube/callback', async (req: Request, res: Response) => {
+  const { code, state, error } = req.query as Record<string, string>
+  const frontend = process.env.FRONTEND_URL ?? 'http://localhost:3000'
+  if (error || !code || !state) { res.redirect(`${frontend}/?music_error=cancelled`); return }
+
+  try {
+    const { userId } = JSON.parse(Buffer.from(state, 'base64url').toString())
+    const client = ytOAuthClient()
+    const { tokens } = await client.getToken(code)
+    client.setCredentials(tokens)
+
+    let profileName: string | undefined
+    try {
+      const yt = google.youtube({ version: 'v3', auth: client })
+      const ch = await yt.channels.list({ part: ['snippet'], mine: true })
+      profileName = ch.data.items?.[0]?.snippet?.title ?? undefined
+    } catch { /* usa undefined */ }
+
+    await prisma.musicConnection.upsert({
+      where: { userId_provider: { userId, provider: 'YOUTUBE' } },
+      update: {
+        accessToken: tokens.access_token!,
+        refreshToken: tokens.refresh_token ?? undefined,
+        expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
+        profileName,
+      },
+      create: {
+        userId,
+        provider: 'YOUTUBE',
+        accessToken: tokens.access_token!,
+        refreshToken: tokens.refresh_token ?? undefined,
+        expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
+        profileName,
+      },
+    })
+    res.redirect(`${frontend}/?music_success=youtube`)
+  } catch (err) {
+    console.error('YouTube Music OAuth error:', err)
+    res.redirect(`${frontend}/?music_error=failed`)
+  }
+})
+
+// GET /api/music/youtube/playlists
+router.get('/youtube/playlists', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const auth = await getYoutubeAuth(req.userId!)
+  if (!auth) { res.status(404).json({ message: 'YouTube não conectado' }); return }
+
+  try {
+    const yt = google.youtube({ version: 'v3', auth })
+    const r = await yt.playlists.list({ part: ['snippet', 'contentDetails'], mine: true, maxResults: 25 })
+    res.json((r.data.items ?? []).map(p => ({
+      id: p.id,
+      title: p.snippet?.title ?? 'Playlist',
+      count: p.contentDetails?.itemCount ?? 0,
+      thumb: p.snippet?.thumbnails?.default?.url ?? null,
+    })))
+  } catch (err) {
+    console.error('YouTube playlists error:', err)
+    res.status(500).json({ message: 'Erro ao listar playlists do YouTube' })
+  }
+})
+
+// DELETE /api/music/youtube
+router.delete('/youtube', authMiddleware, async (req: AuthRequest, res: Response) => {
+  await prisma.musicConnection.deleteMany({ where: { userId: req.userId!, provider: 'YOUTUBE' } })
+  res.json({ message: 'Desconectado' })
 })
 
 // GET /api/music/spotify/now-playing
