@@ -4,16 +4,9 @@ import { pageVariants } from '@/lib/motionVariants'
 import { User, Bell, Shield, CreditCard, Users, Link2, Check, Plus, Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useProjectStore } from '@/store/projectStore'
+import { useSocialAccounts } from '@/hooks/useSocialAccounts'
 import { getInitials } from '@/lib/utils'
 import { api } from '@/lib/api'
-
-interface ConnectedAccount {
-  id: string
-  provider: string
-  profileName: string
-  profileAvatar?: string
-  status: string
-}
 
 const TABS = [
   { id: 'profile',   label: 'Perfil',         icon: User       },
@@ -54,7 +47,7 @@ export default function SettingsPage() {
   const [notifPrefs, setNotifPrefs] = useState<Record<string, boolean>>(
     Object.fromEntries(NOTIF_PREFS.map(n => [n.id, true]))
   )
-  const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([])
+  const { accounts: connectedAccounts, setAccounts: setConnectedAccounts } = useSocialAccounts(activeProject?.id)
   const [connectingNetwork, setConnectingNetwork] = useState<string | null>(null)
   const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -71,14 +64,6 @@ export default function SettingsPage() {
     }
     setTimeout(() => setOauthMessage(null), 4000)
   }, [])
-
-  useEffect(() => {
-    if (activeProject) {
-      api.get<ConnectedAccount[]>(`/social/accounts?projectId=${activeProject.id}`)
-        .then(setConnectedAccounts)
-        .catch(() => setConnectedAccounts([]))
-    }
-  }, [activeProject])
 
   const OAUTH_NETWORKS: Record<string, string> = {
     youtube: 'google',

@@ -31,9 +31,11 @@ router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 
   const { accountIds } = (req.body ?? {}) as { accountIds?: string[] }
-  const accounts = accountIds?.length
+  // sem escolha explícita no modal, usa as contas definidas na criação do post
+  const ids = accountIds?.length ? accountIds : post.targetAccountIds
+  const accounts = ids.length
     ? await prisma.socialAccount.findMany({
-        where: { id: { in: accountIds }, projectId: post.projectId, status: 'CONNECTED' },
+        where: { id: { in: ids }, projectId: post.projectId, status: 'CONNECTED' },
         select: { id: true, provider: true, profileName: true },
       })
     : []

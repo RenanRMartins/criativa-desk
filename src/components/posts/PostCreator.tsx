@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -8,6 +8,7 @@ import {
   Instagram, Youtube, MessageSquare, ChevronDown, Check, Plus,
 } from 'lucide-react'
 import { useProjectStore } from '@/store/projectStore'
+import { useSocialAccounts } from '@/hooks/useSocialAccounts'
 import { MOCK_PROJECTS } from '@/lib/mockData'
 import { FORMAT_LABELS, NETWORK_LABELS, STATUS_LABELS } from '@/lib/constants'
 import { MediaUploader, type UploadedFile } from './MediaUploader'
@@ -28,6 +29,7 @@ const schema = z.object({
   publishDate: z.string().optional(),
   recordingDate: z.string().optional(),
   observations: z.string().optional(),
+  targetAccountIds: z.array(z.string()).default([]),
 })
 type FormValues = z.infer<typeof schema>
 
@@ -61,7 +63,7 @@ export function PostCreator({ open, onClose, onSave, defaultDate }: Props) {
   const [hashInput, setHashInput] = useState('')
   const [hashList, setHashList] = useState<string[]>(project?.defaultHashtags ?? [])
 
-  const { register, handleSubmit, control, watch, formState: { errors, isSubmitting } } = useForm<FormValues>({
+  const { register, handleSubmit, control, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       format: 'REELS_INSTAGRAM',
@@ -69,11 +71,21 @@ export function PostCreator({ open, onClose, onSave, defaultDate }: Props) {
       status: 'IDEA',
       publishDate: defaultDate ?? '',
       hashtags: (project?.defaultHashtags ?? []).join(' '),
+      targetAccountIds: [],
     },
   })
 
   const selectedNetworks = watch('networks') as string[]
   const caption = watch('caption') ?? ''
+
+  const { accounts } = useSocialAccounts(project?.id)
+  const matchingAccounts = accounts.filter(a => selectedNetworks.includes(a.provider))
+
+  // ao mudar as redes (ou carregar as contas), pré-seleciona todas as contas compatíveis
+  const matchingKey = matchingAccounts.map(a => a.id).join(',')
+  useEffect(() => {
+    setValue('targetAccountIds', matchingKey ? matchingKey.split(',') : [])
+  }, [matchingKey, setValue])
 
   function addHash() {
     const h = hashInput.trim().replace(/^#/, '')
@@ -372,6 +384,57 @@ export function PostCreator({ open, onClose, onSave, defaultDate }: Props) {
                       />
                       {errors.networks && <p className="text-red-500 text-xs mt-1">{errors.networks.message}</p>}
                     </div>
+
+                    {/* Contas conectadas das redes selecionadas */}
+                    {matchingAccounts.length > 0 && (
+                      <div>
+                        <label className="block text-xs font-medium mb-2 uppercase tracking-wider" style={{ color: 'var(--color-gray-text)' }}>
+                          Publicar nas contas
+                        </label>
+                        <Controller
+                          control={control}
+                          name="targetAccountIds"
+                          render={({ field }) => (
+                            <div className="space-y-1.5">
+                              {matchingAccounts.map(account => {
+                                const selected = (field.value as string[]).includes(account.id)
+                                return (
+                                  <button
+                                    key={account.id}
+                                    type="button"
+                                    onClick={() => {
+                                      const cur = field.value as string[]
+                                      field.onChange(selected ? cur.filter(x => x !== account.id) : [...cur, account.id])
+                                    }}
+                                    className="flex items-center gap-2 w-full px-3 py-2 rounded-xl text-xs cursor-pointer transition-all"
+                                    style={{
+                                      background: selected ? 'white' : 'transparent',
+                                      border: `1px solid ${selected ? 'var(--color-gray-border)' : 'transparent'}`,
+                                      color: selected ? 'var(--color-black)' : 'var(--color-gray-text)',
+                                      boxShadow: selected ? 'var(--shadow-card)' : 'none',
+                                    }}
+                                  >
+                                    <div className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
+                                      style={{ background: selected ? 'var(--color-wine)' : 'var(--color-gray-border)' }}>
+                                      {selected && <Check size={9} color="white" />}
+                                    </div>
+                                    {account.profileAvatar ? (
+                                      <img src={account.profileAvatar} alt="" className="w-5 h-5 rounded-full object-cover flex-shrink-0" />
+                                    ) : (
+                                      <div className="w-5 h-5 rounded-full flex-shrink-0" style={{ background: 'var(--color-wine)' }} />
+                                    )}
+                                    <span className="truncate">{account.profileName}</span>
+                                    <span className="ml-auto flex-shrink-0" style={{ color: 'var(--color-gray-text)' }}>
+                                      {NETWORK_LABELS[account.provider]}
+                                    </span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
+                        />
+                      </div>
+                    )}
 
                     {/* Preview */}
                     <div>

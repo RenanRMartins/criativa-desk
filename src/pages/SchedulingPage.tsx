@@ -9,24 +9,18 @@ import { useProjectStore } from '@/store/projectStore'
 import StatusBadge from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/utils'
 import { NETWORK_LABELS } from '@/lib/constants'
+import { useSocialAccounts } from '@/hooks/useSocialAccounts'
 import type { Post, SocialNetwork } from '@/types'
 
 function isDemo(token: string | null) { return !token || token.startsWith('demo-token') }
-
-interface ConnectedAccount {
-  id: string
-  provider: SocialNetwork
-  profileName: string
-  profileAvatar?: string
-}
 
 export default function SchedulingPage() {
   const { token } = useAuthStore()
   const { activeProject } = useProjectStore()
   const { posts, fetchPosts, updatePost } = usePosts(activeProject?.id)
+  const { accounts } = useSocialAccounts(activeProject?.id)
   const [publishing, setPublishing] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
-  const [accounts, setAccounts] = useState<ConnectedAccount[]>([])
   const [selectTarget, setSelectTarget] = useState<Post | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
 
@@ -34,21 +28,17 @@ export default function SchedulingPage() {
 
   useEffect(() => { fetchPosts() }, [fetchPosts])
 
-  useEffect(() => {
-    if (activeProject && !isDemo(token)) {
-      api.get<ConnectedAccount[]>(`/social/accounts?projectId=${activeProject.id}`)
-        .then(setAccounts)
-        .catch(() => setAccounts([]))
-    }
-  }, [activeProject, token])
-
   // Abre o seletor de contas quando há contas conectadas nas redes do post;
   // sem contas (ou em demo) publica direto via mock
   function requestPublish(post: Post) {
     if (isDemo(token)) { void publishNow(post.id, post.title, []); return }
     const matching = accounts.filter(a => post.networks.includes(a.provider))
     if (matching.length === 0) { void publishNow(post.id, post.title, []); return }
-    setSelectedIds(matching.map(a => a.id))
+    // pré-seleção: contas escolhidas na criação do post; senão, todas
+    const preset = post.targetAccountIds?.length
+      ? matching.filter(a => post.targetAccountIds!.includes(a.id)).map(a => a.id)
+      : []
+    setSelectedIds(preset.length > 0 ? preset : matching.map(a => a.id))
     setSelectTarget(post)
   }
 

@@ -48,8 +48,15 @@ async function publishDuePosts() {
     if (meta.nextAttemptAt && new Date(meta.nextAttemptAt) > now) continue
 
     try {
+      // contas escolhidas na criação do post; sem escolha, todas as conectadas das redes do post
       const accounts = await prisma.socialAccount.findMany({
-        where: { projectId: post.projectId, status: 'CONNECTED', provider: { in: post.networks } },
+        where: {
+          projectId: post.projectId,
+          status: 'CONNECTED',
+          ...(post.targetAccountIds.length
+            ? { id: { in: post.targetAccountIds } }
+            : { provider: { in: post.networks } }),
+        },
         select: { id: true, provider: true, profileName: true },
       })
       const results = await publishToNetworks(post.id, accounts)

@@ -139,6 +139,7 @@ export interface Post {
   publishedAt?: string
   responsibleId?: string
   observations?: string
+  targetAccountIds?: string[]
   publishResults?: Record<string, { success: boolean; postId?: string; url?: string; error?: string }>
   project?: Project
   author?: User

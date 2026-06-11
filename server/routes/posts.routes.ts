@@ -49,16 +49,17 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     publishDate: z.string().optional(),
     theme: z.string().optional(),
     observations: z.string().optional(),
+    targetAccountIds: z.array(z.string()).default([]),
   })
   const body = schema.safeParse(req.body)
   if (!body.success) { res.status(400).json({ message: 'Dados inválidos' }); return }
 
-  const { projectId, title, format, networks, status, caption, hashtags, publishDate, theme, observations } = body.data
+  const { projectId, title, format, networks, status, caption, hashtags, publishDate, theme, observations, targetAccountIds } = body.data
   const post = await prisma.post.create({
     data: {
       projectId, title, format: format as never, networks: networks as never,
       status: (status ?? 'IDEA') as never, caption, hashtags, publishDate: publishDate ? new Date(publishDate) : undefined,
-      theme, observations, authorId: req.userId!,
+      theme, observations, targetAccountIds, authorId: req.userId!,
     },
     include: { media: true },
   })

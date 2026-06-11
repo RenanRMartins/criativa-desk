@@ -302,6 +302,7 @@ export default function CalendarPage() {
               publishDate: data.publishDate || undefined,
               theme: data.theme,
               observations: data.observations,
+              targetAccountIds: data.targetAccountIds ?? [],
             })
             await fetchPosts()
           } catch (e) {
