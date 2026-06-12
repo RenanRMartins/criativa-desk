@@ -266,7 +266,8 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
 
 // ─── TIKTOK ───────────────────────────────────────────────────────────────────
 
-const TT_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/social/tiktok/callback`
+// rota neutra: o revisor do TikTok exige que a redirect URI não contenha "tiktok"
+const TT_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/social/clip/callback`
 
 router.get('/tiktok/auth-url', authMiddleware, (req: AuthRequest, res: Response) => {
   const projectId = req.query.projectId as string
@@ -283,7 +284,7 @@ router.get('/tiktok/auth-url', authMiddleware, (req: AuthRequest, res: Response)
   res.json({ url: `https://www.tiktok.com/v2/auth/authorize/?${params}` })
 })
 
-router.get('/tiktok/callback', async (req: Request, res: Response) => {
+router.get('/clip/callback', async (req: Request, res: Response) => {
   const { code, state, error } = req.query as Record<string, string>
   const frontend = process.env.FRONTEND_URL ?? 'http://localhost:3000'
   if (error || !code || !state) { res.redirect(`${frontend}/settings?oauth_error=cancelled`); return }

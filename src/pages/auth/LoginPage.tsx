@@ -213,6 +213,12 @@ export default function LoginPage() {
               Criar conta
             </Link>
           </p>
+
+          <p className="text-center text-xs mt-4" style={{ color: 'rgba(255,255,255,0.25)' }}>
+            <Link to="/termos" className="transition-colors hover:text-white underline">Termos de Serviço</Link>
+            {' · '}
+            <Link to="/privacidade" className="transition-colors hover:text-white underline">Política de Privacidade</Link>
+          </p>
         </motion.div>
 
         {/* Demo hint */}

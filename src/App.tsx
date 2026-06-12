@@ -23,6 +23,8 @@ import ProfessionalPortalPage from '@/pages/public/ProfessionalPortalPage'
 import ApprovalPublicPage from '@/pages/public/ApprovalPublicPage'
 import PrivacyPolicyPage from '@/pages/public/PrivacyPolicyPage'
 import DataDeletionPage from '@/pages/public/DataDeletionPage'
+import LandingPage from '@/pages/public/LandingPage'
+import TermsPage from '@/pages/public/TermsPage'
 import AppLayout from '@/components/layout/AppLayout'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -44,6 +46,14 @@ export default function App() {
         <Routes>
           {/* Public routes (no auth) */}
           <Route
+            path="/"
+            element={
+              <GuestRoute>
+                <LandingPage />
+              </GuestRoute>
+            }
+          />
+          <Route
             path="/login"
             element={
               <GuestRoute>
@@ -62,6 +72,7 @@ export default function App() {
           <Route path="/gravar/:token" element={<ProfessionalPortalPage />} />
           <Route path="/aprovar/:token" element={<ApprovalPublicPage />} />
           <Route path="/privacidade" element={<PrivacyPolicyPage />} />
+          <Route path="/termos" element={<TermsPage />} />
           <Route path="/exclusao-de-dados" element={<DataDeletionPage />} />
 
           {/* Onboarding */}
@@ -76,14 +87,12 @@ export default function App() {
 
           {/* App routes (protected + layout) */}
           <Route
-            path="/"
             element={
               <ProtectedRoute>
                 <AppLayout />
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:id" element={<ProjectDetailPage />} />
