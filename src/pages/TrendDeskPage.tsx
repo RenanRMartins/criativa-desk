@@ -123,7 +123,7 @@ const BRAZIL_NICHE = 'Em alta no Brasil'
 
 export default function TrendDeskPage() {
   const { activeProject } = useProjectStore()
-  const { trends, loading, fetchTrends } = useTrends(activeProject?.id)
+  const { trends, loading, generating, fetchTrends } = useTrends(activeProject?.id)
   const [scope, setScope] = useState<'nicho' | 'brasil'>('nicho')
 
   useEffect(() => { fetchTrends() }, [fetchTrends])
@@ -178,8 +178,10 @@ export default function TrendDeskPage() {
           </div>
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
             style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.12)' }}>
-            {loading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-            {loading ? 'Atualizando…' : 'Atualizado agora'}
+            {loading || generating ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+            {generating
+              ? 'Gerando tendências do seu nicho…'
+              : loading ? 'Atualizando…' : 'Atualizado agora'}
           </div>
         </div>
 
@@ -261,10 +263,14 @@ export default function TrendDeskPage() {
 
         {visible.length === 0 && (
           <div className="text-center py-20">
-            <TrendingUp size={44} className="mx-auto mb-3" style={{ color: 'rgba(255,255,255,0.15)' }} />
+            {generating && scope === 'nicho'
+              ? <Loader2 size={44} className="mx-auto mb-3 animate-spin" style={{ color: 'rgba(255,255,255,0.25)' }} />
+              : <TrendingUp size={44} className="mx-auto mb-3" style={{ color: 'rgba(255,255,255,0.15)' }} />}
             <p className="mb-4" style={{ color: 'rgba(255,255,255,0.35)' }}>
               {scope === 'nicho'
-                ? 'Nenhuma tendência do seu nicho no momento'
+                ? generating
+                  ? `Gerando tendências de ${activeProject?.niche ?? 'seu nicho'}… leva alguns segundos.`
+                  : 'Nenhuma tendência do seu nicho no momento'
                 : 'Nenhuma busca geral disponível agora'}
             </p>
             {scope === 'nicho' && brazilTrends.length > 0 && (

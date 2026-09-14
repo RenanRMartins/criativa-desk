@@ -2,12 +2,16 @@ import { Router, type Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
 import { getGoogleTrends } from '../services/trends.service'
+import { ensureNicheTrends } from '../services/niche-trends.service'
 
 const router = Router()
 router.use(authMiddleware)
 
 router.get('/', async (req: AuthRequest, res: Response) => {
   const { projectId, niche } = req.query
+
+  // projeto sem tendências do próprio nicho dispara a geração por IA em background
+  const generating = projectId ? await ensureNicheTrends(projectId as string) : false
 
   const [googleTrends, dbTrends] = await Promise.all([
     getGoogleTrends(),
@@ -29,10 +33,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         t.title.toLowerCase().includes((niche as string).toLowerCase()) ||
         t.description.toLowerCase().includes((niche as string).toLowerCase()))
     : googleTrends
-  res.json([
-    ...google.map(t => ({ ...t, projectId: (projectId as string) ?? '' })),
-    ...dbTrends,
-  ])
+  res.json({
+    items: [
+      ...google.map(t => ({ ...t, projectId: (projectId as string) ?? '' })),
+      ...dbTrends,
+    ],
+    generating,
+  })
 })
 
 export default router

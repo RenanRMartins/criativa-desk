@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { api } from '@/lib/api'
 import { MOCK_TRENDS } from '@/lib/mockData'
@@ -12,6 +12,7 @@ export function useTrends(projectId?: string) {
   const { token } = useAuthStore()
   const [trends, setTrends] = useState<TrendItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [generating, setGenerating] = useState(false)
 
   const fetchTrends = useCallback(async () => {
     if (isDemo(token)) {
@@ -24,14 +25,23 @@ export function useTrends(projectId?: string) {
     setLoading(true)
     try {
       const query = projectId ? `?projectId=${projectId}` : ''
-      const data = await api.get<TrendItem[]>(`/trenddesk${query}`)
-      setTrends(data)
+      const data = await api.get<{ items: TrendItem[]; generating: boolean }>(`/trenddesk${query}`)
+      setTrends(data.items)
+      setGenerating(data.generating)
     } catch {
       setTrends([])
+      setGenerating(false)
     } finally {
       setLoading(false)
     }
   }, [token, projectId])
 
-  return { trends, loading, fetchTrends }
+  // a geração roda em background no servidor; busca de novo até as tendências chegarem
+  useEffect(() => {
+    if (!generating) return
+    const timer = setTimeout(fetchTrends, 5000)
+    return () => clearTimeout(timer)
+  }, [generating, fetchTrends])
+
+  return { trends, loading, generating, fetchTrends }
 }
