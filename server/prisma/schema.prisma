@@ -362,7 +362,7 @@ model CopySession {
   type      CopyType
   input     String
   output    String
-  model     String   @default("claude-sonnet-4-6")
+  model     String   @default("claude-sonnet-5")
   tokens    Int?
   saved     Boolean  @default(false)
   project   Project  @relation(fields: [projectId], references: [id])

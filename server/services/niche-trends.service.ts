@@ -70,10 +70,12 @@ type GeneratedTrend = {
 type ProjectContext = {
   name: string
   niche: string | null
+  niches: string[]
   segment: string | null
   toneOfVoice: string | null
   targetAudience: string | null
   contentPillars: string[]
+  brandKeywords: string[]
   forbiddenWords: string[]
   forbiddenTopics: string[]
 }
@@ -82,11 +84,13 @@ function buildPrompt(project: ProjectContext, brazilTrends: string[]) {
   return `Você é a TrendDesk, a IA de tendências do CrIAtiva Desk.
 
 PROJETO: ${project.name}
-NICHO: ${project.niche ?? 'Não definido'}
+NICHO PRINCIPAL: ${project.niche ?? 'Não definido'}
+NICHOS ESCOLHIDOS PARA O TRENDDESK: ${project.niches.join(', ') || 'Nenhum — use o nicho principal'}
 SEGMENTO: ${project.segment ?? 'Não definido'}
 PÚBLICO-ALVO: ${project.targetAudience ?? 'Não definido'}
 TOM DE VOZ: ${project.toneOfVoice ?? 'Profissional e direto'}
 PILARES DE CONTEÚDO: ${project.contentPillars.join(', ') || 'Não definidos'}
+PALAVRAS-CHAVE DA MARCA: ${project.brandKeywords.join(', ') || 'Nenhuma'}
 PALAVRAS/TÓPICOS PROIBIDOS: ${[...project.forbiddenWords, ...project.forbiddenTopics].join(', ') || 'Nenhum'}
 
 ASSUNTOS EM ALTA NO BRASIL HOJE (use só como contexto do momento, não copie):
@@ -95,6 +99,7 @@ ${brazilTrends.length ? brazilTrends.map(t => `- ${t}`).join('\n') : '- (sem dad
 Gere de 6 a 8 tendências de conteúdo REALMENTE do nicho deste projeto, para a social media usar nos próximos 7 dias.
 
 Regras:
+- Se há nichos escolhidos para o TrendDesk, distribua as tendências entre eles e preencha o campo "niche" com o nicho a que cada uma pertence.
 - Específicas do nicho, não genéricas de marketing. Nada de "poste com consistência".
 - Cada uma precisa ter ideias concretas e executáveis de Reels, carrossel e stories.
 - A legenda sugerida deve já estar no tom de voz do projeto e em português brasileiro.
@@ -132,8 +137,9 @@ export async function generateNicheTrends(projectId: string) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       select: {
-        name: true, niche: true, segment: true, toneOfVoice: true, targetAudience: true,
-        contentPillars: true, forbiddenWords: true, forbiddenTopics: true,
+        name: true, niche: true, niches: true, segment: true, toneOfVoice: true,
+        targetAudience: true, contentPillars: true, brandKeywords: true,
+        forbiddenWords: true, forbiddenTopics: true,
       },
     })
     if (!project) return
