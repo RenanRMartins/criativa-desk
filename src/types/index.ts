@@ -140,7 +140,19 @@ export interface Post {
   responsibleId?: string
   observations?: string
   targetAccountIds?: string[]
-  publishResults?: Record<string, { success: boolean; postId?: string; url?: string; error?: string }>
+  publishResults?: {
+    mock?: boolean
+    auto?: boolean
+    outcomes?: {
+      accountId: string
+      provider: SocialNetwork
+      profileName: string
+      ok: boolean
+      externalId?: string
+      url?: string
+      error?: string
+    }[]
+  }
   project?: Project
   author?: User
   media?: PostMedia[]

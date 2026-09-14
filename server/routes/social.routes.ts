@@ -151,7 +151,8 @@ router.get('/linkedin/auth-url', authMiddleware, (req: AuthRequest, res: Respons
     response_type: 'code',
     client_id: process.env['LI_ID'] ?? '',
     redirect_uri: LI_REDIRECT,
-    scope: 'openid profile email',
+    // w_member_social é o que autoriza publicar em nome do membro
+    scope: 'openid profile email w_member_social',
     state,
   })
   res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?${params}` })
@@ -202,9 +203,57 @@ router.get('/linkedin/callback', async (req: Request, res: Response) => {
 // ─── META (Facebook + Instagram) ─────────────────────────────────────────────
 
 const META_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/social/meta/callback`
+// Publicar exige App Review aprovado na Meta; sem isso o consentimento volta só com public_profile
 const META_SCOPES: Record<string, string> = {
-  FACEBOOK: 'public_profile',
-  INSTAGRAM: 'public_profile',
+  FACEBOOK: 'public_profile,pages_show_list,pages_manage_posts,pages_read_engagement',
+  INSTAGRAM: 'public_profile,pages_show_list,instagram_basic,instagram_content_publish,pages_read_engagement',
+}
+
+type MetaPage = {
+  id: string
+  name: string
+  access_token: string
+  picture?: { data?: { url?: string } }
+  instagram_business_account?: { id: string; username?: string; profile_picture_url?: string }
+}
+
+// Uma SocialAccount por Página (FACEBOOK) ou por conta IG Business vinculada (INSTAGRAM).
+// O accessToken guardado é o token da Página — é ele que publica.
+async function saveMetaTargets(projectId: string, network: string, userToken: string) {
+  const fields = 'id,name,access_token,picture{url},instagram_business_account{id,username,profile_picture_url}'
+  const res = await fetch(`https://graph.facebook.com/v21.0/me/accounts?fields=${fields}&access_token=${userToken}`)
+  if (!res.ok) return 0
+
+  const { data } = await res.json() as { data?: MetaPage[] }
+  const pages = data ?? []
+  let saved = 0
+
+  for (const page of pages) {
+    if (network === 'INSTAGRAM') {
+      const ig = page.instagram_business_account
+      if (!ig) continue
+      await saveSocialAccount({
+        projectId,
+        provider: 'INSTAGRAM',
+        accessToken: page.access_token,
+        profileId: ig.id,
+        profileName: ig.username ?? page.name,
+        profileAvatar: ig.profile_picture_url,
+      })
+    } else {
+      await saveSocialAccount({
+        projectId,
+        provider: 'FACEBOOK',
+        accessToken: page.access_token,
+        profileId: page.id,
+        profileName: page.name,
+        profileAvatar: page.picture?.data?.url,
+      })
+    }
+    saved++
+  }
+
+  return saved
 }
 
 router.get('/meta/auth-url', authMiddleware, (req: AuthRequest, res: Response) => {
@@ -229,7 +278,7 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
   if (error || !code || !state) { res.redirect(`${frontend}/settings?oauth_error=cancelled`); return }
 
   try {
-    const { network, projectId, userId } = JSON.parse(Buffer.from(state, 'base64url').toString())
+    const { network, projectId } = JSON.parse(Buffer.from(state, 'base64url').toString())
 
     const tokenRes = await fetch(
       `https://graph.facebook.com/v19.0/oauth/access_token?` +
@@ -243,20 +292,14 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
     const tokenData = await tokenRes.json() as Record<string, string>
     const accessToken = tokenData.access_token
 
-    const profileRes = await fetch(
-      `https://graph.facebook.com/me?fields=id,name,picture&access_token=${accessToken}`
-    )
-    const profile = await profileRes.json() as Record<string, unknown>
+    // Publicar acontece na Página (FB) ou na conta Instagram Business vinculada a ela,
+    // nunca no perfil pessoal — por isso guardamos a Página e o token dela.
+    const saved = await saveMetaTargets(projectId, network, accessToken)
 
-    await saveSocialAccount({
-      projectId,
-      provider: network,
-      accessToken,
-      profileId: (profile.id as string) ?? userId,
-      profileName: (profile.name as string) ?? network,
-      profileAvatar: (profile.picture as Record<string, unknown>)?.data
-        ? ((profile.picture as Record<string, Record<string, string>>).data.url) : undefined,
-    })
+    if (saved === 0) {
+      // sem App Review aprovado o consentimento volta sem pages_show_list
+      res.redirect(`${frontend}/settings?oauth_error=sem_paginas`); return
+    }
     res.redirect(`${frontend}/settings?oauth_success=${network.toLowerCase()}`)
   } catch (err) {
     console.error('Meta OAuth error:', err)
@@ -277,7 +320,8 @@ router.get('/tiktok/auth-url', authMiddleware, (req: AuthRequest, res: Response)
   const params = new URLSearchParams({
     client_key: process.env['TT_KEY'] ?? '',
     response_type: 'code',
-    scope: 'user.info.basic',
+    // video.publish depende da aprovação do app no painel do TikTok
+    scope: 'user.info.basic,video.publish',
     redirect_uri: TT_REDIRECT,
     state,
   })

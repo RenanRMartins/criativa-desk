@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma'
+import { isMockMode, mockOutcomes, publishToAccounts, type PublishPost } from '../services/publish.service'
 
 const TICK_MS = 60_000
 const MAX_ATTEMPTS = 3
@@ -7,23 +8,6 @@ type PublishMeta = {
   attempts?: number
   lastError?: string
   nextAttemptAt?: string
-}
-
-type PublishAccount = {
-  id: string
-  provider: string
-  profileName: string
-}
-
-// Ponto de integração: quando SOCIAL_MOCK_MODE for desligado, a chamada real
-// às APIs das redes (YouTube, Meta, TikTok, LinkedIn) entra aqui
-async function publishToNetworks(_postId: string, accounts: PublishAccount[]) {
-  return {
-    mock: true,
-    auto: true,
-    message: 'Publicado automaticamente pelo agendador (SOCIAL_MOCK_MODE=true)',
-    accounts,
-  }
 }
 
 async function notifyMembers(projectId: string, title: string, message: string) {
@@ -41,6 +25,7 @@ async function publishDuePosts() {
   const now = new Date()
   const due = await prisma.post.findMany({
     where: { status: 'SCHEDULED', scheduledAt: { lte: now } },
+    include: { media: true },
   })
 
   for (const post of due) {
@@ -57,21 +42,49 @@ async function publishDuePosts() {
             ? { id: { in: post.targetAccountIds } }
             : { provider: { in: post.networks } }),
         },
-        select: { id: true, provider: true, profileName: true },
+        select: {
+          id: true, provider: true, profileName: true,
+          accessToken: true, refreshToken: true, profileId: true,
+        },
       })
-      const results = await publishToNetworks(post.id, accounts)
+
+      const payload: PublishPost = {
+        id: post.id,
+        title: post.title,
+        caption: post.caption,
+        hashtags: post.hashtags,
+        link: post.link,
+        media: post.media.map(m => ({ url: m.url, type: m.type, order: m.order })),
+      }
+      const outcomes = isMockMode()
+        ? mockOutcomes(accounts)
+        : await publishToAccounts(payload, accounts)
+
+      const published = outcomes.filter(o => o.ok)
+      // nenhuma rede aceitou: trata como falha para entrar no retry/backoff
+      if (outcomes.length > 0 && published.length === 0) {
+        throw new Error(outcomes.map(o => `${o.provider}: ${o.error}`).join(' | '))
+      }
 
       // claim atômico — se outra instância já publicou, count vem 0
       const claimed = await prisma.post.updateMany({
         where: { id: post.id, status: 'SCHEDULED' },
-        data: { status: 'PUBLISHED', publishedAt: new Date(), publishResults: results },
+        data: {
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          publishResults: { mock: isMockMode(), auto: true, outcomes },
+        },
       })
       if (claimed.count === 0) continue
 
+      const failed = outcomes.filter(o => !o.ok)
       await notifyMembers(post.projectId, 'Post publicado!',
-        accounts.length
-          ? `"${post.title}" foi publicado automaticamente em ${accounts.map(a => a.profileName).join(', ')}.`
-          : `"${post.title}" foi publicado automaticamente.`)
+        [
+          published.length
+            ? `"${post.title}" foi publicado automaticamente em ${published.map(o => o.profileName).join(', ')}.`
+            : `"${post.title}" foi publicado automaticamente.`,
+          failed.length ? `Falhou em: ${failed.map(o => o.profileName).join(', ')}.` : '',
+        ].filter(Boolean).join(' '))
     } catch (err) {
       const attempts = (meta.attempts ?? 0) + 1
       const lastError = err instanceof Error ? err.message : String(err)
