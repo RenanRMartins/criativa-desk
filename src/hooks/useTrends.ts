@@ -16,10 +16,9 @@ export function useTrends(projectId?: string) {
 
   const fetchTrends = useCallback(async () => {
     if (isDemo(token)) {
-      const filtered = projectId
-        ? MOCK_TRENDS.filter(t => t.projectId === projectId)
-        : MOCK_TRENDS
-      setTrends(filtered.length > 0 ? filtered : MOCK_TRENDS)
+      // sem fallback para a lista completa: mostrar tendências de outro projeto
+      // faz o projeto errado parecer ter conteúdo que não é dele
+      setTrends(projectId ? MOCK_TRENDS.filter(t => t.projectId === projectId) : MOCK_TRENDS)
       return
     }
     setLoading(true)

@@ -15,10 +15,9 @@ export function usePosts(projectId?: string) {
 
   const fetchPosts = useCallback(async () => {
     if (isDemo(token)) {
-      const filtered = projectId
-        ? MOCK_POSTS.filter(p => p.projectId === projectId)
-        : MOCK_POSTS
-      setPosts(filtered.length > 0 ? filtered : MOCK_POSTS)
+      // sem fallback para a lista completa: mostrar posts de outro projeto
+      // faz o projeto errado parecer ter conteúdo que não é dele
+      setPosts(projectId ? MOCK_POSTS.filter(p => p.projectId === projectId) : MOCK_POSTS)
       return
     }
     setLoading(true)
