@@ -254,6 +254,26 @@ async function waitForInstagramContainer(creationId: string, accessToken: string
 
 const MAX_VIDEO_BYTES = 300 * 1024 * 1024
 
+// iPhone grava .mov/HEVC, que o TikTok não aceita. O Cloudinary transcodifica sob
+// demanda pela própria URL, então nada precisa ser convertido à mão.
+function mp4Url(url: string) {
+  if (!url.includes('res.cloudinary.com') || !url.includes('/video/upload/')) return url
+  return url
+    .replace('/video/upload/', '/video/upload/f_mp4,vc_h264,ac_aac/')
+    .replace(/\.(mov|avi|mkv|webm|m4v|hevc)$/i, '.mp4')
+}
+
+// A primeira requisição dispara a transcodificação e volta 423 enquanto processa
+async function fetchTranscoded(url: string) {
+  for (let tentativa = 0; tentativa < 12; tentativa++) {
+    const res = await fetch(url)
+    if (res.ok) return res
+    if (res.status !== 423) throw new Error(`Falha ao baixar o vídeo (HTTP ${res.status})`)
+    await sleep(5000)
+  }
+  throw new Error('O vídeo ainda está sendo convertido. Tente publicar de novo em instantes.')
+}
+
 // Regras do TikTok: chunk entre 5 MB e 64 MB, o último podendo chegar a 128 MB
 // para absorver a sobra; total_chunk_count é o piso da divisão.
 function planTiktokChunks(size: number) {
@@ -271,8 +291,7 @@ async function publishTiktok(account: PublishAccount, post: PublishPost) {
   const video = sortedMedia(post).find(m => m.type === 'VIDEO')
   if (!video) throw new Error('TikTok exige um vídeo anexado ao post')
 
-  const download = await fetch(video.url)
-  if (!download.ok) throw new Error(`Falha ao baixar o vídeo (HTTP ${download.status})`)
+  const download = await fetchTranscoded(mp4Url(video.url))
   const mimeType = download.headers.get('content-type') ?? 'video/mp4'
   const bytes = Buffer.from(await download.arrayBuffer())
 
