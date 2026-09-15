@@ -252,6 +252,18 @@ async function waitForInstagramContainer(creationId: string, accessToken: string
 
 // ─── TIKTOK ──────────────────────────────────────────────────────────────────
 
+const MAX_VIDEO_BYTES = 300 * 1024 * 1024
+
+// Regras do TikTok: chunk entre 5 MB e 64 MB, o último podendo chegar a 128 MB
+// para absorver a sobra; total_chunk_count é o piso da divisão.
+function planTiktokChunks(size: number) {
+  const MIN = 5 * 1024 * 1024
+  const MAX = 64 * 1024 * 1024
+  if (size <= MIN) return { chunkSize: size, chunkCount: 1 }
+  const chunkSize = Math.min(size, MAX)
+  return { chunkSize, chunkCount: Math.max(1, Math.floor(size / chunkSize)) }
+}
+
 // PULL_FROM_URL exigiria verificar a propriedade do domínio do vídeo no portal
 // do TikTok — impossível com o Cloudinary. FILE_UPLOAD envia os bytes e não pede
 // verificação nenhuma.
@@ -261,7 +273,15 @@ async function publishTiktok(account: PublishAccount, post: PublishPost) {
 
   const download = await fetch(video.url)
   if (!download.ok) throw new Error(`Falha ao baixar o vídeo (HTTP ${download.status})`)
+  const mimeType = download.headers.get('content-type') ?? 'video/mp4'
   const bytes = Buffer.from(await download.arrayBuffer())
+
+  // o vídeo inteiro fica em memória; acima disso o processo do Railway derruba
+  if (bytes.length > MAX_VIDEO_BYTES) {
+    throw new Error(`Vídeo de ${(bytes.length / 1048576).toFixed(0)} MB excede o limite de ${MAX_VIDEO_BYTES / 1048576} MB`)
+  }
+
+  const { chunkSize, chunkCount } = planTiktokChunks(bytes.length)
 
   const initRes = await fetch('https://open.tiktokapis.com/v2/post/publish/video/init/', {
     method: 'POST',
@@ -282,8 +302,8 @@ async function publishTiktok(account: PublishAccount, post: PublishPost) {
       source_info: {
         source: 'FILE_UPLOAD',
         video_size: bytes.length,
-        chunk_size: bytes.length,
-        total_chunk_count: 1,
+        chunk_size: chunkSize,
+        total_chunk_count: chunkCount,
       },
     }),
   })
@@ -299,16 +319,25 @@ async function publishTiktok(account: PublishAccount, post: PublishPost) {
   const uploadUrl = init.data?.upload_url
   if (!uploadUrl) throw new Error('TikTok não retornou a URL de upload')
 
-  const put = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'video/mp4',
-      'Content-Length': String(bytes.length),
-      'Content-Range': `bytes 0-${bytes.length - 1}/${bytes.length}`,
-    },
-    body: new Uint8Array(bytes),
-  })
-  if (!put.ok) throw new Error(await describeError(put, 'TikTok recusou o envio do vídeo'))
+  for (let i = 0; i < chunkCount; i++) {
+    const inicio = i * chunkSize
+    // o último chunk absorve os bytes restantes, como o TikTok exige
+    const fim = i === chunkCount - 1 ? bytes.length : inicio + chunkSize
+    const pedaco = bytes.subarray(inicio, fim)
+
+    const put = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': mimeType,
+        'Content-Length': String(pedaco.length),
+        'Content-Range': `bytes ${inicio}-${fim - 1}/${bytes.length}`,
+      },
+      body: new Uint8Array(pedaco),
+    })
+    if (!put.ok) {
+      throw new Error(await describeError(put, `TikTok recusou o envio do vídeo (parte ${i + 1}/${chunkCount})`))
+    }
+  }
 
   return { externalId: init.data?.publish_id }
 }
