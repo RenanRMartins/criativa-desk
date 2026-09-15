@@ -265,7 +265,9 @@ async function publishTiktok(account: PublishAccount, post: PublishPost) {
     body: JSON.stringify({
       post_info: {
         title: buildCaption(post).slice(0, 2200) || post.title,
-        privacy_level: 'PUBLIC_TO_EVERYONE',
+        // App sem auditoria do TikTok (e o sandbox) só publica privado; o padrão
+        // conservador evita post público acidental antes da aprovação sair
+        privacy_level: process.env.TIKTOK_PRIVACY ?? 'SELF_ONLY',
         disable_duet: false,
         disable_comment: false,
         disable_stitch: false,
