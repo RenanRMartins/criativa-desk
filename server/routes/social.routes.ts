@@ -209,6 +209,13 @@ const META_SCOPES: Record<string, string> = {
   INSTAGRAM: 'public_profile,pages_show_list,instagram_basic,instagram_content_publish,pages_read_engagement',
 }
 
+// IDs das configurações do Login para Empresas (painel da Meta → Configurations).
+// Sem eles o fluxo cai no scope tradicional, do app antigo.
+const META_CONFIG_IDS: Record<string, string | undefined> = {
+  FACEBOOK: process.env['META_CONFIG_FACEBOOK'],
+  INSTAGRAM: process.env['META_CONFIG_INSTAGRAM'],
+}
+
 type MetaPage = {
   id: string
   name: string
@@ -265,10 +272,16 @@ router.get('/meta/auth-url', authMiddleware, (req: AuthRequest, res: Response) =
   const params = new URLSearchParams({
     client_id: process.env['META_ID'] ?? '',
     redirect_uri: META_REDIRECT,
-    scope: META_SCOPES[network] ?? META_SCOPES.FACEBOOK,
     response_type: 'code',
     state,
   })
+
+  // App com casos de uso de Página/Instagram usa Login para Empresas: as permissões
+  // vivem numa "configuração" do painel e a URL leva o config_id no lugar do scope.
+  const configId = META_CONFIG_IDS[network]
+  if (configId) params.set('config_id', configId)
+  else params.set('scope', META_SCOPES[network] ?? META_SCOPES.FACEBOOK)
+
   res.json({ url: `https://www.facebook.com/v19.0/dialog/oauth?${params}` })
 })
 
