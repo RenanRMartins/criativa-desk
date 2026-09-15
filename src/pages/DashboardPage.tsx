@@ -162,7 +162,7 @@ function OpportunityCard({ trend }: { trend: typeof MOCK_TRENDS[0] }) {
 export default function DashboardPage() {
   const { user } = useAuthStore()
   const { projects, activeProject, setActiveProject } = useProjects()
-  const { posts, fetchPosts } = usePosts(activeProject?.id)
+  const { posts, fetchPosts, createPost } = usePosts(activeProject?.id)
   const navigate = useNavigate()
   const [creatorOpen, setCreatorOpen] = useState(false)
 
@@ -342,6 +342,28 @@ export default function DashboardPage() {
       <PostCreator
         open={creatorOpen}
         onClose={() => setCreatorOpen(false)}
+        onSave={async (data) => {
+          if (!activeProject) return
+          try {
+            await createPost({
+              projectId: activeProject.id,
+              title: data.title,
+              format: data.format as Post['format'],
+              networks: (data.networks ?? []) as Post['networks'],
+              status: (data.status ?? 'IDEA') as Post['status'],
+              caption: data.caption,
+              hashtags: data.hashtags ? data.hashtags.split(/\s+/).filter(Boolean) : [],
+              publishDate: data.publishDate || undefined,
+              theme: data.theme,
+              observations: data.observations,
+              targetAccountIds: data.targetAccountIds ?? [],
+            })
+            await fetchPosts()
+          } catch (e) {
+            console.error('Erro ao criar post:', e)
+            alert(`Não foi possível criar o post: ${e instanceof Error ? e.message : e}`)
+          }
+        }}
       />
     </motion.div>
   )

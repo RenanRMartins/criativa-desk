@@ -104,6 +104,21 @@ export function PostCreator({ open, onClose, onSave, defaultDate }: Props) {
     onClose()
   }
 
+  // Cada campo obrigatório vive numa aba; sem isto o erro renderiza numa aba
+  // que o usuário não está vendo e o clique em salvar parece não fazer nada
+  const TAB_DO_CAMPO: Partial<Record<keyof FormValues, string>> = {
+    title: 'Conteúdo',
+    networks: 'Publicação',
+    status: 'Publicação',
+    format: 'Conteúdo',
+  }
+
+  function onInvalid(formErrors: typeof errors) {
+    const primeiro = Object.keys(formErrors)[0] as keyof FormValues | undefined
+    const aba = primeiro ? TAB_DO_CAMPO[primeiro] : undefined
+    if (aba) setActiveTab(aba)
+  }
+
   if (!open) return null
 
   return (
@@ -166,7 +181,7 @@ export function PostCreator({ open, onClose, onSave, defaultDate }: Props) {
             </div>
 
             {/* Body */}
-            <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+            <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="flex flex-col flex-1 min-h-0">
               <div className="flex-1 overflow-y-auto">
                 <div className="grid grid-cols-5 divide-x h-full" style={{ borderColor: 'var(--color-gray-border)' }}>
                   {/* Left — form */}

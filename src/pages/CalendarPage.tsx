@@ -306,7 +306,9 @@ export default function CalendarPage() {
             })
             await fetchPosts()
           } catch (e) {
+            // sem isto a falha some no console e o usuário acha que salvou
             console.error('Erro ao criar post:', e)
+            alert(`Não foi possível criar o post: ${e instanceof Error ? e.message : e}`)
           }
         }}
       />
