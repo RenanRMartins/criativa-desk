@@ -131,17 +131,27 @@ async function generate(project: ProjectContext): Promise<GeneratedTrend[]> {
   return extractTrends(toolUse.input)
 }
 
-// O schema pede um array, mas o modelo nem sempre entrega exatamente isso —
-// já veio como objeto indexado. Sem normalizar aqui, o .map estoura lá na frente.
-function extractTrends(input: unknown): GeneratedTrend[] {
-  const candidate = Array.isArray(input)
-    ? input
-    : input && typeof input === 'object'
-      ? (input as Record<string, unknown>).tendencias
-      : undefined
+// O schema pede um array, mas o modelo nem sempre entrega exatamente isso: já
+// veio como objeto indexado e como string JSON com outro {tendencias} dentro.
+// Sem normalizar aqui, o .map estoura lá na frente.
+function extractTrends(input: unknown, depth = 0): GeneratedTrend[] {
+  if (depth > 3) throw new Error('Resposta do modelo aninhada demais')
 
-  if (Array.isArray(candidate)) return candidate as GeneratedTrend[]
-  if (candidate && typeof candidate === 'object') return Object.values(candidate) as GeneratedTrend[]
+  if (Array.isArray(input)) return input as GeneratedTrend[]
+
+  if (typeof input === 'string') {
+    try {
+      return extractTrends(JSON.parse(input), depth + 1)
+    } catch {
+      throw new Error(`Resposta do modelo não é JSON válido: ${input.slice(0, 200)}`)
+    }
+  }
+
+  if (input && typeof input === 'object') {
+    const inner = (input as Record<string, unknown>).tendencias
+    if (inner !== undefined) return extractTrends(inner, depth + 1)
+    return Object.values(input) as GeneratedTrend[]
+  }
 
   throw new Error(`Formato inesperado na resposta do modelo: ${JSON.stringify(input).slice(0, 200)}`)
 }
