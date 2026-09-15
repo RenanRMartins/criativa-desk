@@ -32,7 +32,15 @@ export function usePosts(projectId?: string) {
     }
   }, [token, projectId])
 
-  const createPost = useCallback(async (body: Partial<Post> & { projectId: string; title: string; format: string }) => {
+  // media vai no formato que o backend cria (sem id/postId, que ele gera)
+  type NewPost = Omit<Partial<Post>, 'media'> & {
+    projectId: string
+    title: string
+    format: string
+    media?: { url: string; publicId?: string; type: 'IMAGE' | 'VIDEO' | 'DOCUMENT' }[]
+  }
+
+  const createPost = useCallback(async (body: NewPost) => {
     if (isDemo(token)) {
       const mock: Post = {
         id: `post-${Date.now()}`,

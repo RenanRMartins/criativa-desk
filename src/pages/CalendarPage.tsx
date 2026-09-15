@@ -288,10 +288,13 @@ export default function CalendarPage() {
         open={creatorOpen}
         onClose={() => { setCreatorOpen(false); setClickedDate(undefined) }}
         defaultDate={clickedDate}
-        onSave={async (data) => {
+        onSave={async (data, files) => {
           if (!activeProject) return
           try {
             await createPost({
+              media: files
+                .filter(f => f.url)
+                .map(f => ({ url: f.url!, publicId: f.publicId, type: f.type === 'video' ? 'VIDEO' as const : 'IMAGE' as const })),
               projectId: activeProject.id,
               title: data.title,
               format: data.format as Post['format'],

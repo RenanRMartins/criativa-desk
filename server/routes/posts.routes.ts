@@ -50,16 +50,30 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     theme: z.string().optional(),
     observations: z.string().optional(),
     targetAccountIds: z.array(z.string()).default([]),
+    // mídia já enviada ao Cloudinary; sem isto o vídeo anexado no formulário
+    // era descartado e o post nascia sem nada para publicar
+    media: z.array(z.object({
+      url: z.string(),
+      publicId: z.string().optional(),
+      type: z.enum(['IMAGE', 'VIDEO', 'DOCUMENT']),
+    })).default([]),
   })
   const body = schema.safeParse(req.body)
-  if (!body.success) { res.status(400).json({ message: 'Dados inválidos' }); return }
+  if (!body.success) {
+    // o detalhe do zod é o que diz qual campo está errado
+    res.status(400).json({ message: 'Dados inválidos', detalhes: body.error.issues })
+    return
+  }
 
-  const { projectId, title, format, networks, status, caption, hashtags, publishDate, theme, observations, targetAccountIds } = body.data
+  const { projectId, title, format, networks, status, caption, hashtags, publishDate, theme, observations, targetAccountIds, media } = body.data
   const post = await prisma.post.create({
     data: {
       projectId, title, format: format as never, networks: networks as never,
       status: (status ?? 'IDEA') as never, caption, hashtags, publishDate: publishDate ? new Date(publishDate) : undefined,
       theme, observations, targetAccountIds, authorId: req.userId!,
+      media: media.length
+        ? { create: media.map((m, i) => ({ url: m.url, publicId: m.publicId, type: m.type as never, order: i })) }
+        : undefined,
     },
     include: { media: true },
   })
