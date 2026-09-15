@@ -252,11 +252,18 @@ async function waitForInstagramContainer(creationId: string, accessToken: string
 
 // ─── TIKTOK ──────────────────────────────────────────────────────────────────
 
+// PULL_FROM_URL exigiria verificar a propriedade do domínio do vídeo no portal
+// do TikTok — impossível com o Cloudinary. FILE_UPLOAD envia os bytes e não pede
+// verificação nenhuma.
 async function publishTiktok(account: PublishAccount, post: PublishPost) {
   const video = sortedMedia(post).find(m => m.type === 'VIDEO')
   if (!video) throw new Error('TikTok exige um vídeo anexado ao post')
 
-  const res = await fetch('https://open.tiktokapis.com/v2/post/publish/video/init/', {
+  const download = await fetch(video.url)
+  if (!download.ok) throw new Error(`Falha ao baixar o vídeo (HTTP ${download.status})`)
+  const bytes = Buffer.from(await download.arrayBuffer())
+
+  const initRes = await fetch('https://open.tiktokapis.com/v2/post/publish/video/init/', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${account.accessToken}`,
@@ -272,16 +279,38 @@ async function publishTiktok(account: PublishAccount, post: PublishPost) {
         disable_comment: false,
         disable_stitch: false,
       },
-      source_info: { source: 'PULL_FROM_URL', video_url: video.url },
+      source_info: {
+        source: 'FILE_UPLOAD',
+        video_size: bytes.length,
+        chunk_size: bytes.length,
+        total_chunk_count: 1,
+      },
     }),
   })
-  if (!res.ok) throw new Error(await describeError(res, 'TikTok recusou a publicação'))
+  if (!initRes.ok) throw new Error(await describeError(initRes, 'TikTok recusou a publicação'))
 
-  const data = await res.json() as { data?: { publish_id?: string }; error?: { code?: string; message?: string } }
-  if (data.error?.code && data.error.code !== 'ok') {
-    throw new Error(`TikTok: ${data.error.message ?? data.error.code}`)
+  const init = await initRes.json() as {
+    data?: { publish_id?: string; upload_url?: string }
+    error?: { code?: string; message?: string }
   }
-  return { externalId: data.data?.publish_id }
+  if (init.error?.code && init.error.code !== 'ok') {
+    throw new Error(`TikTok: ${init.error.message ?? init.error.code}`)
+  }
+  const uploadUrl = init.data?.upload_url
+  if (!uploadUrl) throw new Error('TikTok não retornou a URL de upload')
+
+  const put = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'video/mp4',
+      'Content-Length': String(bytes.length),
+      'Content-Range': `bytes 0-${bytes.length - 1}/${bytes.length}`,
+    },
+    body: new Uint8Array(bytes),
+  })
+  if (!put.ok) throw new Error(await describeError(put, 'TikTok recusou o envio do vídeo'))
+
+  return { externalId: init.data?.publish_id }
 }
 
 // ─── DISPATCHER ──────────────────────────────────────────────────────────────
