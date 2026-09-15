@@ -344,6 +344,11 @@ export default function DashboardPage() {
         onClose={() => setCreatorOpen(false)}
         onSave={async (data, files) => {
           if (!activeProject) return
+          // anexar arquivo e ele não subir cria um post vazio sem ninguém notar
+          if (files.length > 0 && files.every(f => !f.url)) {
+            alert('Os arquivos anexados não foram enviados. Verifique a aba Mídia antes de salvar.')
+            return
+          }
           try {
             await createPost({
               media: files

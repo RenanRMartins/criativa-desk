@@ -13,6 +13,7 @@ export interface UploadedFile {
   url?: string
   publicId?: string
   uploading?: boolean
+  error?: string
 }
 
 interface UploadResult {
@@ -58,8 +59,11 @@ export function MediaUploader({ files, onChange, maxFiles = 10, accept = 'both' 
             p.id === f.id ? { ...p, url: result.url, publicId: result.publicId, uploading: false } : p
           ))
         })
-        .catch(() => {
-          onChange(filesRef.current.map(p => p.id === f.id ? { ...p, uploading: false } : p))
+        .catch((err: unknown) => {
+          // sem registrar o erro o arquivo parecia enviado, mas ficava sem url
+          // e o post era criado sem mídia nenhuma
+          const motivo = err instanceof Error ? err.message : 'falha no envio'
+          onChange(filesRef.current.map(p => p.id === f.id ? { ...p, uploading: false, error: motivo } : p))
         })
     })
   }, [files, onChange, maxFiles])
@@ -151,10 +155,15 @@ export function MediaUploader({ files, onChange, maxFiles = 10, accept = 'both' 
                   </button>
                 </div>
 
-                <div className="absolute bottom-1 left-1">
-                  <span className="text-xs px-1.5 py-0.5 rounded-full"
-                    style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.8)', fontSize: 9 }}>
-                    {f.uploading ? 'Enviando...' : formatFileSize(f.file.size)}
+                <div className="absolute bottom-1 left-1 right-1">
+                  <span className="text-xs px-1.5 py-0.5 rounded-full block truncate"
+                    style={{
+                      background: f.error ? 'rgba(220,38,38,0.85)' : 'rgba(0,0,0,0.6)',
+                      color: f.error ? 'white' : 'rgba(255,255,255,0.8)',
+                      fontSize: 9,
+                    }}
+                    title={f.error}>
+                    {f.error ? `Falhou: ${f.error}` : f.uploading ? 'Enviando...' : formatFileSize(f.file.size)}
                   </span>
                 </div>
               </motion.div>
