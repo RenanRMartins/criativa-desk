@@ -229,10 +229,16 @@ type MetaPage = {
 async function saveMetaTargets(projectId: string, network: string, userToken: string) {
   const fields = 'id,name,access_token,picture{url},instagram_business_account{id,username,profile_picture_url}'
   const res = await fetch(`https://graph.facebook.com/v21.0/me/accounts?fields=${fields}&access_token=${userToken}`)
-  if (!res.ok) return 0
+  if (!res.ok) {
+    const detalhe = await res.text().catch(() => '')
+    console.error(`[meta] /me/accounts falhou (HTTP ${res.status}): ${detalhe.slice(0, 300)}`)
+    return 0
+  }
 
   const { data } = await res.json() as { data?: MetaPage[] }
   const pages = data ?? []
+  console.log(`[meta] ${network}: /me/accounts devolveu ${pages.length} Página(s)` +
+    (pages.length ? ` — ${pages.map(p => `${p.name}${p.instagram_business_account ? ' (com IG)' : ''}`).join(', ')}` : ''))
   let saved = 0
 
   for (const page of pages) {

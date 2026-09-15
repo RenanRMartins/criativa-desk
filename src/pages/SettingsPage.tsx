@@ -27,6 +27,13 @@ const NETWORK_LIST = (
   Icon: NETWORK_ICONS[network],
 }))
 
+// O motivo vem do callback OAuth; sem ele toda falha vira "tente novamente"
+const OAUTH_ERRORS: Record<string, string> = {
+  cancelled: 'Você cancelou a autorização, ou ela expirou. Tente conectar de novo.',
+  sem_paginas: 'Autorização concluída, mas nenhuma Página foi encontrada na sua conta. Verifique se você escolheu ao menos uma Página durante o login e se ela pertence a um portfólio empresarial.',
+  failed: 'Falha ao processar a autorização. O motivo detalhado está nos logs do servidor.',
+}
+
 const NOTIF_PREFS = [
   { id: 'approval',  label: 'Post aprovado pelo cliente'          },
   { id: 'video',     label: 'Vídeo recebido de profissional'      },
@@ -60,10 +67,10 @@ export default function SettingsPage() {
       setOauthMessage({ type: 'success', text: `${success.replace('_', ' ')} conectado com sucesso!` })
       window.history.replaceState({}, '', '/settings')
     } else if (error) {
-      setOauthMessage({ type: 'error', text: 'Erro ao conectar. Tente novamente.' })
+      setOauthMessage({ type: 'error', text: OAUTH_ERRORS[error] ?? `Erro ao conectar (${error}).` })
       window.history.replaceState({}, '', '/settings')
     }
-    setTimeout(() => setOauthMessage(null), 4000)
+    setTimeout(() => setOauthMessage(null), 9000)
   }, [])
 
   const OAUTH_NETWORKS: Record<string, string> = {
