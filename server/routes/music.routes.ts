@@ -62,6 +62,9 @@ router.get('/spotify/auth-url', authMiddleware, (req: AuthRequest, res: Response
     scope: SPOTIFY_SCOPES,
     redirect_uri: SPOTIFY_REDIRECT,
     state,
+    // sem isto o Spotify pula o consentimento de quem já autorizou antes e
+    // devolve um token com os escopos antigos — escopo novo nunca é concedido
+    show_dialog: 'true',
   })
   res.json({ url: `https://accounts.spotify.com/authorize?${params}` })
 })
