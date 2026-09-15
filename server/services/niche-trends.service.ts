@@ -113,19 +113,37 @@ Chame a ferramenta salvar_tendencias com o resultado.`
 async function generate(project: ProjectContext): Promise<GeneratedTrend[]> {
   const brazilTrends = (await getGoogleTrends()).slice(0, 15).map(t => t.title)
 
+  // O Sonnet 5 raciocina por padrão e esses tokens contam no max_tokens; com um
+  // teto baixo a resposta é cortada antes de completar a chamada da ferramenta
   const message = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 8000,
+    max_tokens: 16000,
     tools: [SAVE_TOOL],
     tool_choice: { type: 'tool', name: SAVE_TOOL.name },
     messages: [{ role: 'user', content: buildPrompt(project, brazilTrends) }],
   })
 
   const toolUse = message.content.find(block => block.type === 'tool_use')
-  if (!toolUse || toolUse.type !== 'tool_use') throw new Error('Modelo não retornou tendências')
+  if (!toolUse || toolUse.type !== 'tool_use') {
+    throw new Error(`Modelo não retornou tendências (stop_reason: ${message.stop_reason})`)
+  }
 
-  const { tendencias } = toolUse.input as { tendencias?: GeneratedTrend[] }
-  return tendencias ?? []
+  return extractTrends(toolUse.input)
+}
+
+// O schema pede um array, mas o modelo nem sempre entrega exatamente isso —
+// já veio como objeto indexado. Sem normalizar aqui, o .map estoura lá na frente.
+function extractTrends(input: unknown): GeneratedTrend[] {
+  const candidate = Array.isArray(input)
+    ? input
+    : input && typeof input === 'object'
+      ? (input as Record<string, unknown>).tendencias
+      : undefined
+
+  if (Array.isArray(candidate)) return candidate as GeneratedTrend[]
+  if (candidate && typeof candidate === 'object') return Object.values(candidate) as GeneratedTrend[]
+
+  throw new Error(`Formato inesperado na resposta do modelo: ${JSON.stringify(input).slice(0, 200)}`)
 }
 
 // Gera em background e salva no banco. Não lança — a rota não deve falhar por isso.
@@ -144,7 +162,8 @@ export async function generateNicheTrends(projectId: string) {
     })
     if (!project) return
 
-    const trends = await generate(project)
+    // campos obrigatórios no schema — item incompleto derruba o createMany inteiro
+    const trends = (await generate(project)).filter(t => t?.title && t?.description)
     if (trends.length === 0) {
       failedAt.set(projectId, Date.now())
       return
@@ -157,7 +176,7 @@ export async function generateNicheTrends(projectId: string) {
         title: t.title,
         description: t.description,
         niche: t.niche || project.niche || 'Meu nicho',
-        trendScore: t.trendScore,
+        trendScore: typeof t.trendScore === 'number' ? t.trendScore : 70,
         source: 'CrIAtiva IA',
         reelsIdea: t.reelsIdea,
         carouselIdea: t.carouselIdea,

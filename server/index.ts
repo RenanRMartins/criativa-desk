@@ -23,7 +23,13 @@ const app = express()
 const PORT = process.env.PORT ?? 4000
 
 app.use(helmet())
-app.use(cors({ origin: process.env.FRONTEND_URL ?? 'http://localhost:3000', credentials: true }))
+// FRONTEND_URL é o endereço canônico (também usado nos redirects de OAuth).
+// EXTRA_CORS_ORIGINS mantém o domínio antigo funcionando durante a troca.
+const allowedOrigins = [
+  process.env.FRONTEND_URL ?? 'http://localhost:3000',
+  ...(process.env.EXTRA_CORS_ORIGINS ?? '').split(',').map(o => o.trim()).filter(Boolean),
+]
+app.use(cors({ origin: allowedOrigins, credentials: true }))
 app.use(express.json({ limit: '10mb' }))
 
 const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 500 })

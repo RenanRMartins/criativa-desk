@@ -269,7 +269,7 @@ export default function TrendDeskPage() {
             <p className="mb-4" style={{ color: 'rgba(255,255,255,0.35)' }}>
               {scope === 'nicho'
                 ? generating
-                  ? `Gerando tendências de ${activeProject?.niche ?? 'seu nicho'}… leva alguns segundos.`
+                  ? `Gerando tendências de ${activeProject?.niche ?? 'seu nicho'}… pode levar até dois minutos.`
                   : 'Nenhuma tendência do seu nicho no momento'
                 : 'Nenhuma busca geral disponível agora'}
             </p>
