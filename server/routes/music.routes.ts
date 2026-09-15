@@ -342,7 +342,13 @@ router.get('/spotify/playlists', authMiddleware, async (req: AuthRequest, res: R
   const r = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (!r.ok) { res.status(r.status).json({ message: 'Erro ao listar playlists do Spotify' }); return }
+  if (!r.ok) {
+    // o motivo do Spotify (escopo faltando, token expirado) é o que importa aqui
+    const detalhe = await r.text().catch(() => '')
+    console.error(`[spotify] /me/playlists HTTP ${r.status}: ${detalhe.slice(0, 300)}`)
+    res.status(r.status).json({ message: `Spotify recusou (HTTP ${r.status}): ${detalhe.slice(0, 200)}` })
+    return
+  }
 
   const data = await r.json() as {
     items?: { id: string; name: string; uri: string; images?: { url: string }[]; tracks?: { total?: number } }[]
