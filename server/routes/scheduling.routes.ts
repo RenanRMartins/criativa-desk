@@ -51,6 +51,7 @@ router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
         {
           id: post.id,
           title: post.title,
+          format: post.format,
           caption: post.caption,
           hashtags: post.hashtags,
           link: post.link,

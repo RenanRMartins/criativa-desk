@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'motion/react'
 import { pageVariants } from '@/lib/motionVariants'
 import { User, Bell, Shield, CreditCard, Users, Link2, Check, Plus, Loader2, CheckCircle2, XCircle } from 'lucide-react'
+import { NETWORK_LABELS, NETWORK_COLORS, NETWORK_ICONS } from '@/lib/constants'
 import { useAuthStore } from '@/store/authStore'
 import { useProjectStore } from '@/store/projectStore'
 import { useSocialAccounts } from '@/hooks/useSocialAccounts'
@@ -17,14 +18,14 @@ const TABS = [
   { id: 'billing',   label: 'Plano',           icon: CreditCard },
 ]
 
-const NETWORK_LIST = [
-  { id: 'instagram',        label: 'Instagram',        color: '#E1306C', tag: 'IG' },
-  { id: 'tiktok',           label: 'TikTok',           color: '#010101', tag: 'TK' },
-  { id: 'youtube',          label: 'YouTube',          color: '#FF0000', tag: 'YT' },
-  { id: 'facebook',         label: 'Facebook',         color: '#1877F2', tag: 'FB' },
-  { id: 'google_business',  label: 'Google Business',  color: '#4285F4', tag: 'GB' },
-  { id: 'linkedin',         label: 'LinkedIn',         color: '#0A66C2', tag: 'LI' },
-]
+const NETWORK_LIST = (
+  ['INSTAGRAM', 'TIKTOK', 'YOUTUBE', 'FACEBOOK', 'GOOGLE_BUSINESS', 'LINKEDIN'] as const
+).map(network => ({
+  id: network.toLowerCase(),
+  label: NETWORK_LABELS[network],
+  color: NETWORK_COLORS[network],
+  Icon: NETWORK_ICONS[network],
+}))
 
 const NOTIF_PREFS = [
   { id: 'approval',  label: 'Post aprovado pelo cliente'          },
@@ -259,9 +260,9 @@ export default function SettingsPage() {
                     <div key={net.id} className="p-4 rounded-xl border space-y-3"
                       style={{ borderColor: accounts.length ? 'rgba(16,185,129,0.3)' : 'var(--color-gray-border)' }}>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white flex-shrink-0"
                           style={{ background: net.color }}>
-                          {net.tag}
+                          <net.Icon size={19} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium">{net.label}</p>
@@ -292,9 +293,9 @@ export default function SettingsPage() {
                               {account.profileAvatar ? (
                                 <img src={account.profileAvatar} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
                               ) : (
-                                <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+                                <div className="w-7 h-7 rounded-full flex items-center justify-center text-white flex-shrink-0"
                                   style={{ background: net.color }}>
-                                  {net.tag}
+                                  <net.Icon size={13} />
                                 </div>
                               )}
                               <p className="text-xs font-medium flex-1 truncate">{account.profileName}</p>

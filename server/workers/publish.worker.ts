@@ -51,6 +51,7 @@ async function publishDuePosts() {
       const payload: PublishPost = {
         id: post.id,
         title: post.title,
+        format: post.format,
         caption: post.caption,
         hashtags: post.hashtags,
         link: post.link,

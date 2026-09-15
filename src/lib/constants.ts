@@ -1,3 +1,8 @@
+import type { IconType } from 'react-icons'
+import {
+  FaInstagram, FaFacebookF, FaTiktok, FaYoutube, FaGoogle,
+  FaGlobe, FaLinkedinIn, FaPinterestP, FaThreads,
+} from 'react-icons/fa6'
 import type { PostStatus, PostFormat, SocialNetwork, CopyType } from '@/types'
 
 export const STATUS_LABELS: Record<PostStatus, string> = {
@@ -66,6 +71,20 @@ export const NETWORK_LABELS: Record<SocialNetwork, string> = {
   LINKEDIN: 'LinkedIn',
   PINTEREST: 'Pinterest',
   THREADS: 'Threads',
+}
+
+// Lucide removeu os ícones de marca; Font Awesome 6 cobre todas as redes
+// exceto Kwai, que cai num ícone genérico de globo.
+export const NETWORK_ICONS: Record<SocialNetwork, IconType> = {
+  INSTAGRAM: FaInstagram,
+  FACEBOOK: FaFacebookF,
+  TIKTOK: FaTiktok,
+  YOUTUBE: FaYoutube,
+  GOOGLE_BUSINESS: FaGoogle,
+  KWAI: FaGlobe,
+  LINKEDIN: FaLinkedinIn,
+  PINTEREST: FaPinterestP,
+  THREADS: FaThreads,
 }
 
 export const NETWORK_COLORS: Record<SocialNetwork, string> = {

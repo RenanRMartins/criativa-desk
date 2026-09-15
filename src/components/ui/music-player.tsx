@@ -88,6 +88,10 @@ interface YTPlaylist {
   thumb: string | null
 }
 
+interface SpotifyPlaylist extends YTPlaylist {
+  uri: string
+}
+
 type Provider = 'spotify' | 'youtube' | null
 
 interface Track {
@@ -145,6 +149,7 @@ export function MusicPlayer() {
   const [ytName, setYtName] = useState<string | null>(null)
   const [ytPlaylists, setYtPlaylists] = useState<YTPlaylist[]>([])
   const [ytPlaylistId, setYtPlaylistId] = useState('')
+  const [spPlaylists, setSpPlaylists] = useState<SpotifyPlaylist[]>([])
   const [ytPlaying, setYtPlaying] = useState(false)
   const [ytTrack, setYtTrack] = useState<{ title: string; author: string } | null>(null)
   const [ytProgress, setYtProgress] = useState(0)
@@ -287,6 +292,15 @@ export function MusicPlayer() {
       })
       .catch(() => setYtPlaylists([]))
   }, [realYoutube])
+
+  // Playlists do Spotify — permitem iniciar a música aqui sem precisar
+  // dar play antes em outro aparelho
+  useEffect(() => {
+    if (!realSpotify) return
+    api.get<SpotifyPlaylist[]>('/music/spotify/playlists')
+      .then(setSpPlaylists)
+      .catch(() => setSpPlaylists([]))
+  }, [realSpotify])
 
   // Player embutido do YouTube (IFrame API) na playlist escolhida.
   // Carrega por IDs de vídeo (via API autenticada) — funciona com playlists privadas.
@@ -486,7 +500,10 @@ export function MusicPlayer() {
     setProvider(null)
   }
 
-  async function control(action: 'play' | 'pause' | 'next' | 'previous' | 'volume' | 'transfer', opts?: { volume?: number; deviceId?: string }) {
+  async function control(
+    action: 'play' | 'pause' | 'next' | 'previous' | 'volume' | 'transfer',
+    opts?: { volume?: number; deviceId?: string; contextUri?: string },
+  ) {
     try {
       await api.post('/music/spotify/control', { action, ...opts })
       if (action === 'play') setNow(n => n ? { ...n, playing: true } : n)
@@ -519,6 +536,7 @@ export function MusicPlayer() {
     setSdkActive(false)
     setSpotifyConnected(false)
     setSpotifyName(null)
+    setSpPlaylists([])
     setNow(null)
     setProvider(null)
   }
@@ -527,7 +545,7 @@ export function MusicPlayer() {
   const display = realSpotify
     ? {
         title: now?.track?.title ?? 'Nada tocando agora',
-        artist: now?.track?.artist ?? 'Dê o play no app do Spotify',
+        artist: now?.track?.artist ?? 'Escolha uma playlist acima para começar',
         cover: now?.track?.cover ?? null,
         isPlaying: now?.playing ?? false,
         progressSec: Math.floor((now?.progressMs ?? 0) / 1000),
@@ -694,6 +712,32 @@ export function MusicPlayer() {
                     </button>
                   </div>
                 </div>
+
+                {/* Spotify: escolher playlist já inicia a reprodução neste navegador */}
+                {realSpotify && (
+                  spPlaylists.length > 0 ? (
+                    <select
+                      defaultValue=""
+                      onChange={e => {
+                        const uri = e.target.value
+                        if (uri) void control('play', { deviceId: deviceId ?? undefined, contextUri: uri })
+                      }}
+                      className="w-full px-2.5 py-2 rounded-xl text-xs outline-none cursor-pointer"
+                      style={{ background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.1)' }}
+                    >
+                      <option value="" style={{ color: 'black' }}>Tocar uma playlist…</option>
+                      {spPlaylists.map(p => (
+                        <option key={p.id} value={p.uri} style={{ color: 'black' }}>
+                          {p.title} ({p.count})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-center" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                      Nenhuma playlist encontrada — desconecte e conecte de novo para liberar o acesso a elas
+                    </p>
+                  )
+                )}
 
                 {/* YouTube: playlist + player embutido */}
                 {realYoutube && (

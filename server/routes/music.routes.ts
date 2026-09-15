@@ -6,7 +6,9 @@ import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
 const router = Router()
 
 const SPOTIFY_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/music/spotify/callback`
-const SPOTIFY_SCOPES = 'streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing'
+// playlist-read-* permitem listar as playlists do usuário para iniciar a
+// reprodução direto no navegador, sem depender de algo já tocando no celular
+const SPOTIFY_SCOPES = 'streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private playlist-read-collaborative'
 
 function basicAuth() {
   return Buffer.from(`${process.env['SPOT_ID'] ?? ''}:${process.env['SPOT_SEC'] ?? ''}`).toString('base64')
@@ -329,18 +331,47 @@ router.get('/spotify/token', authMiddleware, async (req: AuthRequest, res: Respo
   res.json({ accessToken: token })
 })
 
-// POST /api/music/spotify/control { action: 'play'|'pause'|'next'|'previous'|'volume'|'transfer', volume?, deviceId? }
+// GET /api/music/spotify/playlists
+router.get('/spotify/playlists', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const token = await getSpotifyToken(req.userId!)
+  if (!token) { res.status(404).json({ message: 'Spotify não conectado' }); return }
+
+  const r = await fetch('https://api.spotify.com/v1/me/playlists?limit=50', {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!r.ok) { res.status(r.status).json({ message: 'Erro ao listar playlists do Spotify' }); return }
+
+  const data = await r.json() as {
+    items?: { id: string; name: string; uri: string; images?: { url: string }[]; tracks?: { total?: number } }[]
+  }
+  res.json((data.items ?? []).map(p => ({
+    id: p.id,
+    title: p.name,
+    uri: p.uri,
+    count: p.tracks?.total ?? 0,
+    thumb: p.images?.[0]?.url ?? null,
+  })))
+})
+
+// POST /api/music/spotify/control { action, volume?, deviceId?, contextUri? }
 router.post('/spotify/control', authMiddleware, async (req: AuthRequest, res: Response) => {
   const token = await getSpotifyToken(req.userId!)
   if (!token) { res.status(404).json({ message: 'Spotify não conectado' }); return }
 
-  const { action, volume, deviceId } = (req.body ?? {}) as { action?: string; volume?: number; deviceId?: string }
+  const { action, volume, deviceId, contextUri } = (req.body ?? {}) as {
+    action?: string; volume?: number; deviceId?: string; contextUri?: string
+  }
 
   let method = 'PUT'
   let path = ''
   let body: string | undefined
   switch (action) {
-    case 'play': path = '/me/player/play'; break
+    case 'play':
+      // com contextUri inicia a playlist no dispositivo indicado; sem ele
+      // apenas retoma o que já estava tocando
+      path = '/me/player/play' + (deviceId ? `?device_id=${deviceId}` : '')
+      if (contextUri) body = JSON.stringify({ context_uri: contextUri })
+      break
     case 'pause': path = '/me/player/pause'; break
     case 'next': method = 'POST'; path = '/me/player/next'; break
     case 'previous': method = 'POST'; path = '/me/player/previous'; break

@@ -18,6 +18,7 @@ export type PublishAccount = {
 export type PublishPost = {
   id: string
   title: string
+  format: string
   caption: string | null
   hashtags: string[]
   link: string | null
@@ -156,37 +157,85 @@ async function publishFacebook(account: PublishAccount, post: PublishPost) {
 
 // ─── INSTAGRAM ───────────────────────────────────────────────────────────────
 
-// profileId é o ID da conta Instagram Business vinculada à Página
-async function publishInstagram(account: PublishAccount, post: PublishPost) {
-  const media = sortedMedia(post)[0]
-  if (!media) throw new Error('Instagram exige uma imagem ou vídeo anexado ao post')
+// Cria um container de mídia e devolve o id. Stories não aceitam legenda.
+async function createInstagramContainer(
+  account: PublishAccount,
+  params: Record<string, string>,
+) {
+  const body = new URLSearchParams({ access_token: account.accessToken, ...params })
+  const res = await fetch(`${GRAPH}/${account.profileId}/media`, { method: 'POST', body })
+  if (!res.ok) throw new Error(await describeError(res, 'Instagram recusou o container de mídia'))
+  const { id } = await res.json() as { id: string }
+  return id
+}
 
-  const createBody = new URLSearchParams({
-    access_token: account.accessToken,
-    caption: buildCaption(post),
-  })
-  if (media.type === 'VIDEO') {
-    createBody.set('media_type', 'REELS')
-    createBody.set('video_url', media.url)
-  } else {
-    createBody.set('image_url', media.url)
-  }
-
-  const createRes = await fetch(`${GRAPH}/${account.profileId}/media`, { method: 'POST', body: createBody })
-  if (!createRes.ok) throw new Error(await describeError(createRes, 'Instagram recusou o container de mídia'))
-  const { id: creationId } = await createRes.json() as { id: string }
-
-  // vídeo é processado de forma assíncrona — publicar antes de FINISHED falha
-  if (media.type === 'VIDEO') await waitForInstagramContainer(creationId, account.accessToken)
-
-  const publishRes = await fetch(`${GRAPH}/${account.profileId}/media_publish`, {
+async function publishInstagramContainer(account: PublishAccount, creationId: string) {
+  const res = await fetch(`${GRAPH}/${account.profileId}/media_publish`, {
     method: 'POST',
     body: new URLSearchParams({ access_token: account.accessToken, creation_id: creationId }),
   })
-  if (!publishRes.ok) throw new Error(await describeError(publishRes, 'Instagram recusou a publicação'))
+  if (!res.ok) throw new Error(await describeError(res, 'Instagram recusou a publicação'))
 
-  const { id } = await publishRes.json() as { id: string }
-  return { externalId: id, url: `https://www.instagram.com/p/${id}` }
+  const { id } = await res.json() as { id: string }
+  // o id publicado não é o shortcode da URL — o permalink vem da própria API
+  let url: string | undefined
+  try {
+    const permaRes = await fetch(`${GRAPH}/${id}?fields=permalink&access_token=${account.accessToken}`)
+    if (permaRes.ok) url = (await permaRes.json() as { permalink?: string }).permalink
+  } catch { /* link é opcional */ }
+
+  return { externalId: id, url }
+}
+
+// profileId é o ID da conta Instagram Business vinculada à Página
+async function publishInstagram(account: PublishAccount, post: PublishPost) {
+  const media = sortedMedia(post)
+  if (media.length === 0) throw new Error('Instagram exige uma imagem ou vídeo anexado ao post')
+
+  const caption = buildCaption(post)
+  const urlParam = (m: { url: string; type: string }): Record<string, string> =>
+    m.type === 'VIDEO' ? { video_url: m.url } : { image_url: m.url }
+
+  // Carrossel: um container por item, depois um container CAROUSEL com os filhos
+  if (post.format === 'CAROUSEL_INSTAGRAM' && media.length > 1) {
+    const children: string[] = []
+    for (const item of media) {
+      const childId = await createInstagramContainer(account, {
+        ...urlParam(item),
+        is_carousel_item: 'true',
+      })
+      if (item.type === 'VIDEO') await waitForInstagramContainer(childId, account.accessToken)
+      children.push(childId)
+    }
+    const carouselId = await createInstagramContainer(account, {
+      media_type: 'CAROUSEL',
+      children: children.join(','),
+      caption,
+    })
+    return publishInstagramContainer(account, carouselId)
+  }
+
+  const first = media[0]!
+
+  // Stories não aceitam legenda nem hashtags no corpo da requisição
+  if (post.format === 'STORIES_INSTAGRAM') {
+    const storyId = await createInstagramContainer(account, {
+      media_type: 'STORIES',
+      ...urlParam(first),
+    })
+    if (first.type === 'VIDEO') await waitForInstagramContainer(storyId, account.accessToken)
+    return publishInstagramContainer(account, storyId)
+  }
+
+  const creationId = await createInstagramContainer(account, {
+    caption,
+    ...(first.type === 'VIDEO' ? { media_type: 'REELS' } : {}),
+    ...urlParam(first),
+  })
+  // vídeo é processado de forma assíncrona — publicar antes de FINISHED falha
+  if (first.type === 'VIDEO') await waitForInstagramContainer(creationId, account.accessToken)
+
+  return publishInstagramContainer(account, creationId)
 }
 
 async function waitForInstagramContainer(creationId: string, accessToken: string) {
