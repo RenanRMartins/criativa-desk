@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { Router, type Request, type Response } from 'express'
 import { google } from 'googleapis'
 import { prisma } from '../lib/prisma'
@@ -282,9 +283,42 @@ async function paginasDoPortfolio(userToken: string): Promise<MetaPage[]> {
   return encontradas
 }
 
-// Uma SocialAccount por Página (FACEBOOK) ou por conta IG Business vinculada (INSTAGRAM).
-// O accessToken guardado é o token da Página — é ele que publica.
-async function saveMetaTargets(projectId: string, network: string, userToken: string) {
+type AlvoMeta = {
+  profileId: string
+  provider: 'FACEBOOK' | 'INSTAGRAM'
+  nome: string
+  avatar?: string
+  paginaNome: string
+  token: string          // token da Página — nunca sai numa resposta HTTP
+}
+
+/**
+ * Quem gere várias contas (a própria, a da clínica, as dos clientes) recebe TODAS
+ * as Páginas que administra numa autorização só. Salvar todas no projeto ativo
+ * encheria cada cliente com as contas dos outros, então primeiro listamos e a
+ * pessoa escolhe quais pertencem a este projeto.
+ */
+function alvosDasPaginas(network: string, pages: MetaPage[]): AlvoMeta[] {
+  const alvos: AlvoMeta[] = []
+  for (const page of pages) {
+    if (network === 'INSTAGRAM') {
+      const ig = page.instagram_business_account
+      if (!ig) { console.log(`[meta] Página ${page.name} não tem conta Instagram Business vinculada`); continue }
+      alvos.push({
+        profileId: ig.id, provider: 'INSTAGRAM', nome: ig.username ?? page.name,
+        avatar: ig.profile_picture_url, paginaNome: page.name, token: page.access_token,
+      })
+    } else {
+      alvos.push({
+        profileId: page.id, provider: 'FACEBOOK', nome: page.name,
+        avatar: page.picture?.data?.url, paginaNome: page.name, token: page.access_token,
+      })
+    }
+  }
+  return alvos
+}
+
+async function listarAlvosMeta(network: string, userToken: string) {
   const res = await graphGet(`me/accounts?fields=${META_PAGE_FIELDS}`, userToken)
   if (!res.ok) console.error(`[meta] /me/accounts falhou (HTTP ${res.status}): ${res.text.slice(0, 300)}`)
 
@@ -298,34 +332,43 @@ async function saveMetaTargets(projectId: string, network: string, userToken: st
     console.log(`[meta] ${network}: portfólio devolveu ${pages.length} Página(s)`)
   }
 
-  let saved = 0
+  return { alvos: alvosDasPaginas(network, pages), paginas: pages.length }
+}
 
-  for (const page of pages) {
-    if (network === 'INSTAGRAM') {
-      const ig = page.instagram_business_account
-      if (!ig) { console.log(`[meta] Página ${page.name} não tem conta Instagram Business vinculada`); continue }
-      await saveSocialAccount({
-        projectId,
-        provider: 'INSTAGRAM',
-        accessToken: page.access_token,
-        profileId: ig.id,
-        profileName: ig.username ?? page.name,
-        profileAvatar: ig.profile_picture_url,
-      })
-    } else {
-      await saveSocialAccount({
-        projectId,
-        provider: 'FACEBOOK',
-        accessToken: page.access_token,
-        profileId: page.id,
-        profileName: page.name,
-        profileAvatar: page.picture?.data?.url,
-      })
-    }
-    saved++
+// O accessToken guardado é o token da Página — é ele que publica.
+async function salvarAlvosMeta(projectId: string, alvos: AlvoMeta[]) {
+  for (const a of alvos) {
+    await saveSocialAccount({
+      projectId,
+      provider: a.provider,
+      accessToken: a.token,
+      profileId: a.profileId,
+      profileName: a.nome,
+      profileAvatar: a.avatar,
+    })
   }
+  return alvos.length
+}
 
-  return { saved, paginas: pages.length }
+// Ponte entre o callback do OAuth e a tela de escolha. Em memória de propósito:
+// são tokens de publicação, e a escolha acontece em segundos. Se o processo
+// reiniciar no meio, a pessoa reconecta — melhor que persistir token à toa.
+const META_PENDENTES = new Map<string, {
+  userId: string; projectId: string; network: string; alvos: AlvoMeta[]; expira: number
+}>()
+const PENDENTE_TTL = 10 * 60 * 1000
+
+function guardarPendente(dados: { userId: string; projectId: string; network: string; alvos: AlvoMeta[] }) {
+  for (const [id, p] of META_PENDENTES) if (p.expira < Date.now()) META_PENDENTES.delete(id)
+  const id = randomBytes(16).toString('hex')
+  META_PENDENTES.set(id, { ...dados, expira: Date.now() + PENDENTE_TTL })
+  return id
+}
+
+function lerPendente(id: string, userId: string) {
+  const p = META_PENDENTES.get(id)
+  if (!p || p.expira < Date.now()) { META_PENDENTES.delete(id); return null }
+  return p.userId === userId ? p : null
 }
 
 router.get('/meta/auth-url', authMiddleware, (req: AuthRequest, res: Response) => {
@@ -356,7 +399,7 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
   if (error || !code || !state) { res.redirect(`${frontend}/settings?oauth_error=cancelled`); return }
 
   try {
-    const { network, projectId } = JSON.parse(Buffer.from(state, 'base64url').toString())
+    const { network, projectId, userId } = JSON.parse(Buffer.from(state, 'base64url').toString())
 
     const tokenRes = await fetch(
       `https://graph.facebook.com/v19.0/oauth/access_token?` +
@@ -372,15 +415,23 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
 
     // Publicar acontece na Página (FB) ou na conta Instagram Business vinculada a ela,
     // nunca no perfil pessoal — por isso guardamos a Página e o token dela.
-    const { saved, paginas } = await saveMetaTargets(projectId, network, accessToken)
+    const { alvos, paginas } = await listarAlvosMeta(network, accessToken)
 
-    if (saved === 0) {
+    if (alvos.length === 0) {
       // "sem_ig" separa os dois becos: Página visível mas sem Instagram Business
       // vinculado ≠ nenhuma Página visível para o token
       const motivo = paginas > 0 && network === 'INSTAGRAM' ? 'sem_ig' : 'sem_paginas'
       res.redirect(`${frontend}/settings?oauth_error=${motivo}`); return
     }
-    res.redirect(`${frontend}/settings?oauth_success=${network.toLowerCase()}`)
+
+    // com uma conta só não há o que escolher — perguntar seria atrito à toa
+    if (alvos.length === 1) {
+      await salvarAlvosMeta(projectId, alvos)
+      res.redirect(`${frontend}/settings?oauth_success=${network.toLowerCase()}`); return
+    }
+
+    const pendente = guardarPendente({ userId, projectId, network, alvos })
+    res.redirect(`${frontend}/settings?meta_escolher=${pendente}`)
   } catch (err) {
     console.error('Meta OAuth error:', err)
     res.redirect(`${process.env.FRONTEND_URL ?? 'http://localhost:3000'}/settings?oauth_error=failed`)
@@ -453,6 +504,34 @@ router.get('/clip/callback', async (req: Request, res: Response) => {
 })
 
 // GET /api/social/accounts?projectId=xxx
+// GET /api/social/meta/escolher/:id — o que a autorização encontrou.
+// Devolve nome e avatar; o token da Página nunca sai daqui.
+router.get('/meta/escolher/:id', authMiddleware, (req: AuthRequest, res: Response) => {
+  const pendente = lerPendente(req.params.id as string, req.userId!)
+  if (!pendente) { res.status(404).json({ message: 'Escolha expirada. Conecte novamente.' }); return }
+  res.json({
+    network: pendente.network,
+    projectId: pendente.projectId,
+    contas: pendente.alvos.map(a => ({
+      profileId: a.profileId, provider: a.provider, nome: a.nome, avatar: a.avatar, paginaNome: a.paginaNome,
+    })),
+  })
+})
+
+// POST /api/social/meta/escolher/:id  { profileIds: string[] }
+router.post('/meta/escolher/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const pendente = lerPendente(req.params.id as string, req.userId!)
+  if (!pendente) { res.status(404).json({ message: 'Escolha expirada. Conecte novamente.' }); return }
+
+  const { profileIds } = (req.body ?? {}) as { profileIds?: string[] }
+  const escolhidos = pendente.alvos.filter(a => profileIds?.includes(a.profileId))
+  if (escolhidos.length === 0) { res.status(400).json({ message: 'Escolha ao menos uma conta.' }); return }
+
+  const salvos = await salvarAlvosMeta(pendente.projectId, escolhidos)
+  META_PENDENTES.delete(req.params.id as string)   // token de Página não fica na memória à toa
+  res.json({ salvos, network: pendente.network })
+})
+
 router.get('/accounts', authMiddleware, async (req: AuthRequest, res: Response) => {
   const { projectId } = req.query as { projectId: string }
   if (!projectId) { res.json([]); return }

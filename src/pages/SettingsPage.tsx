@@ -28,6 +28,11 @@ const NETWORK_LIST = (
 }))
 
 // O motivo vem do callback OAuth; sem ele toda falha vira "tente novamente"
+type EscolhaMeta = {
+  network: string
+  contas: { profileId: string; provider: string; nome: string; avatar?: string; paginaNome: string }[]
+}
+
 type TesteConta = {
   ok: boolean
   erro?: string
@@ -69,11 +74,23 @@ export default function SettingsPage() {
   const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [testando, setTestando] = useState<string | null>(null)
   const [testes, setTestes] = useState<Record<string, TesteConta | null>>({})
+  const [escolha, setEscolha] = useState<(EscolhaMeta & { id: string; marcados: string[] }) | null>(null)
+  const [salvandoEscolha, setSalvandoEscolha] = useState(false)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const success = params.get('oauth_success')
     const error = params.get('oauth_error')
+    // quem gere várias contas recebe todas de uma vez; escolher evita encher
+    // este projeto com as contas dos outros clientes
+    const escolher = params.get('meta_escolher')
+    if (escolher) {
+      window.history.replaceState({}, '', '/settings')
+      api.get<EscolhaMeta>(`/social/meta/escolher/${escolher}`)
+        .then(r => setEscolha({ ...r, id: escolher, marcados: [] }))
+        .catch(e => setOauthMessage({ type: 'error', text: e instanceof Error ? e.message : 'Escolha expirada.' }))
+      return
+    }
     if (success) {
       setOauthMessage({ type: 'success', text: `${success.replace('_', ' ')} conectado com sucesso!` })
       window.history.replaceState({}, '', '/settings')
@@ -112,6 +129,23 @@ export default function SettingsPage() {
     }
   }
 
+  async function confirmarEscolha() {
+    if (!escolha || escolha.marcados.length === 0) return
+    setSalvandoEscolha(true)
+    try {
+      const r = await api.post<{ salvos: number }>(`/social/meta/escolher/${escolha.id}`, {
+        profileIds: escolha.marcados,
+      })
+      setEscolha(null)
+      setOauthMessage({ type: 'success', text: `${r.salvos} conta(s) conectada(s) a este projeto.` })
+      setTimeout(() => window.location.reload(), 1200)
+    } catch (e) {
+      setOauthMessage({ type: 'error', text: e instanceof Error ? e.message : 'Falha ao salvar a escolha.' })
+    } finally {
+      setSalvandoEscolha(false)
+    }
+  }
+
   async function disconnectNetwork(accountId: string) {
     await api.delete(`/social/accounts/${accountId}`)
     setConnectedAccounts(prev => prev.filter(a => a.id !== accountId))
@@ -146,6 +180,71 @@ export default function SettingsPage() {
 
   return (
     <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" className="space-y-6">
+      {escolha && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
+          <div className="w-full max-w-lg rounded-2xl p-6 max-h-[85vh] overflow-y-auto" style={{ background: 'white' }}>
+            <h2 className="font-heading font-semibold text-lg">Quais contas pertencem a este projeto?</h2>
+            <p className="text-xs mt-1" style={{ color: 'var(--color-gray-text)' }}>
+              A autorização encontrou {escolha.contas.length} contas que você administra. Marque as
+              de <strong style={{ color: 'var(--color-wine)' }}>{activeProject?.name ?? 'este projeto'}</strong> —
+              as outras continuam disponíveis para conectar nos projetos delas.
+            </p>
+
+            <div className="space-y-2 mt-4">
+              {escolha.contas.map(c => {
+                const marcado = escolha.marcados.includes(c.profileId)
+                return (
+                  <button
+                    key={c.profileId}
+                    onClick={() => setEscolha(e => e && ({
+                      ...e,
+                      marcados: marcado ? e.marcados.filter(x => x !== c.profileId) : [...e.marcados, c.profileId],
+                    }))}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl border text-left cursor-pointer transition-colors"
+                    style={{
+                      borderColor: marcado ? 'var(--color-wine)' : 'var(--color-gray-border)',
+                      background: marcado ? 'var(--color-wine-subtle)' : 'transparent',
+                    }}>
+                    <span className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0 border"
+                      style={{
+                        borderColor: marcado ? 'var(--color-wine)' : 'var(--color-gray-border)',
+                        background: marcado ? 'var(--color-wine)' : 'transparent',
+                      }}>
+                      {marcado && <Check size={13} color="white" />}
+                    </span>
+                    {c.avatar
+                      ? <img src={c.avatar} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                      : <span className="w-9 h-9 rounded-full flex-shrink-0" style={{ background: 'var(--color-gray-light)' }} />}
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium truncate">{c.nome}</span>
+                      <span className="block text-xs truncate" style={{ color: 'var(--color-gray-text)' }}>
+                        {c.provider === 'INSTAGRAM' ? `Instagram · Página ${c.paginaNome}` : 'Página do Facebook'}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={confirmarEscolha}
+                disabled={escolha.marcados.length === 0 || salvandoEscolha}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer disabled:opacity-40"
+                style={{ background: 'var(--color-wine)' }}>
+                {salvandoEscolha ? 'Conectando…' : `Conectar ${escolha.marcados.length || ''}`.trim()}
+              </button>
+              <button
+                onClick={() => setEscolha(null)}
+                className="px-4 py-2.5 rounded-xl text-sm border cursor-pointer"
+                style={{ borderColor: 'var(--color-gray-border)' }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div>
         <h1 className="font-heading font-bold text-2xl">Configurações</h1>
         <p className="text-sm mt-0.5" style={{ color: 'var(--color-gray-text)' }}>
