@@ -1,31 +1,35 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AnimatePresence } from 'motion/react'
 import { useAuthStore } from '@/store/authStore'
 
 import LoginPage from '@/pages/auth/LoginPage'
-import RegisterPage from '@/pages/auth/RegisterPage'
-import OnboardingPage from '@/pages/OnboardingPage'
-import DashboardPage from '@/pages/DashboardPage'
-import ProjectsPage from '@/pages/ProjectsPage'
-import ProjectDetailPage from '@/pages/ProjectDetailPage'
-import CalendarPage from '@/pages/CalendarPage'
-import VideosReceivedPage from '@/pages/VideosReceivedPage'
-import ApprovalsPage from '@/pages/ApprovalsPage'
-import SchedulingPage from '@/pages/SchedulingPage'
-import CopyDeskPage from '@/pages/CopyDeskPage'
-import TrendDeskPage from '@/pages/TrendDeskPage'
-import SearchDeskPage from '@/pages/SearchDeskPage'
-import DesignDeskPage from '@/pages/DesignDeskPage'
-import LibraryPage from '@/pages/LibraryPage'
-import ReportsPage from '@/pages/ReportsPage'
-import SettingsPage from '@/pages/SettingsPage'
-import ProfessionalPortalPage from '@/pages/public/ProfessionalPortalPage'
-import ApprovalPublicPage from '@/pages/public/ApprovalPublicPage'
-import PrivacyPolicyPage from '@/pages/public/PrivacyPolicyPage'
-import DataDeletionPage from '@/pages/public/DataDeletionPage'
-import LandingPage from '@/pages/public/LandingPage'
-import TermsPage from '@/pages/public/TermsPage'
 import AppLayout from '@/components/layout/AppLayout'
+
+// Carregadas sob demanda: sem isto o tablet baixa e interpreta as 20 telas
+// antes de mostrar qualquer coisa. Login e o layout ficam no pacote inicial.
+const RegisterPage = lazy(() => import('@/pages/auth/RegisterPage'))
+const OnboardingPage = lazy(() => import('@/pages/OnboardingPage'))
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'))
+const ProjectsPage = lazy(() => import('@/pages/ProjectsPage'))
+const ProjectDetailPage = lazy(() => import('@/pages/ProjectDetailPage'))
+const CalendarPage = lazy(() => import('@/pages/CalendarPage'))
+const VideosReceivedPage = lazy(() => import('@/pages/VideosReceivedPage'))
+const ApprovalsPage = lazy(() => import('@/pages/ApprovalsPage'))
+const SchedulingPage = lazy(() => import('@/pages/SchedulingPage'))
+const CopyDeskPage = lazy(() => import('@/pages/CopyDeskPage'))
+const TrendDeskPage = lazy(() => import('@/pages/TrendDeskPage'))
+const SearchDeskPage = lazy(() => import('@/pages/SearchDeskPage'))
+const DesignDeskPage = lazy(() => import('@/pages/DesignDeskPage'))
+const LibraryPage = lazy(() => import('@/pages/LibraryPage'))
+const ReportsPage = lazy(() => import('@/pages/ReportsPage'))
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
+const ProfessionalPortalPage = lazy(() => import('@/pages/public/ProfessionalPortalPage'))
+const ApprovalPublicPage = lazy(() => import('@/pages/public/ApprovalPublicPage'))
+const PrivacyPolicyPage = lazy(() => import('@/pages/public/PrivacyPolicyPage'))
+const DataDeletionPage = lazy(() => import('@/pages/public/DataDeletionPage'))
+const LandingPage = lazy(() => import('@/pages/public/LandingPage'))
+const TermsPage = lazy(() => import('@/pages/public/TermsPage'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -43,6 +47,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AnimatePresence mode="wait">
+        {/* enquanto a tela sob demanda chega — discreto de propósito, para não
+            piscar um bloco grande em cada navegação */}
+        <Suspense fallback={<div className="min-h-screen" style={{ background: 'var(--color-cream)' }} />}>
         <Routes>
           {/* Public routes (no auth) */}
           <Route
@@ -111,6 +118,7 @@ export default function App() {
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </Suspense>
       </AnimatePresence>
     </BrowserRouter>
   )

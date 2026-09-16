@@ -19,9 +19,23 @@ async function initEngine(engine: Engine) {
   await loadSlim(engine);
 }
 
+/**
+ * Enfeite custa caro: a animação roda em canvas, quadro a quadro, sem parar.
+ * Num tablet isso concorre com a interface inteira — e é onde a social media
+ * trabalha. Em tela sensível ao toque, ou com "reduzir movimento" ligado, as
+ * partículas simplesmente não entram; no resto, 30fps bastam para o efeito.
+ */
+function enfeiteValeAPena() {
+  if (typeof window === 'undefined' || !window.matchMedia) return true;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+  return !window.matchMedia('(pointer: coarse)').matches;
+}
+
 export function SparklesCore(props: ParticlesProps) {
   const { id, className, background, minSize, maxSize, speed, particleColor, particleDensity } = props;
   const generatedId = useId();
+
+  if (!enfeiteValeAPena()) return null;
 
   return (
     <ParticlesProvider init={initEngine}>
@@ -31,7 +45,7 @@ export function SparklesCore(props: ParticlesProps) {
         options={{
           background: { color: { value: background || "transparent" } },
           fullScreen: { enable: false },
-          fpsLimit: 120,
+          fpsLimit: 30,   // 120 fazia o canvas redesenhar 120x/s por pura decoração
           particles: {
             color: { value: particleColor || "#ffffff" },
             move: {
