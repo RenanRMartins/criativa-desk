@@ -51,7 +51,13 @@ app.use('/api/social', socialRoutes)
 app.use('/api/music', musicRoutes)
 app.use('/api/canva', canvaRoutes)
 
-app.get('/api/health', (_, res) => res.json({ status: 'ok', ts: new Date().toISOString() }))
+// o commit vem do Railway: sem ele não dá para saber se um deploy já subiu,
+// e "health 200" é a mesma resposta antes e depois de qualquer mudança
+app.get('/api/health', (_, res) => res.json({
+  status: 'ok',
+  ts: new Date().toISOString(),
+  commit: process.env['RAILWAY_GIT_COMMIT_SHA']?.slice(0, 7) ?? 'local',
+}))
 
 app.listen(PORT, () => {
   console.log(`CrIAtiva Desk API running on http://localhost:${PORT}`)
