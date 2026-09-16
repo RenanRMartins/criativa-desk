@@ -9,7 +9,8 @@
     "start": "prisma db push --skip-generate && node dist/index.js",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "smoke": "tsx scripts/smoke-publish.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
