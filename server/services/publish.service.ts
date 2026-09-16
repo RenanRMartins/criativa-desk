@@ -76,11 +76,26 @@ function sortedMedia(post: PublishPost) {
 }
 
 async function describeError(res: Response, fallback: string) {
-  let detail = ''
+  let corpo = ''
   try {
-    detail = (await res.text()).slice(0, 300)
+    corpo = await res.text()
   } catch { /* corpo ilegível */ }
-  return `${fallback} (HTTP ${res.status})${detail ? `: ${detail}` : ''}`
+  if (!corpo) return `${fallback} (HTTP ${res.status})`
+
+  // A Meta manda a explicação legível em error_user_msg, no fim do JSON — que é
+  // justamente onde o corte caía. Promove esses campos antes de truncar.
+  try {
+    const e = (JSON.parse(corpo) as { error?: Record<string, string> }).error
+    if (e) {
+      const humano = [e['error_user_title'], e['error_user_msg']].filter(Boolean).join(' — ')
+      const tecnico = [e['message'], e['code'] && `code ${e['code']}`, e['error_subcode'] && `subcode ${e['error_subcode']}`]
+        .filter(Boolean).join(', ')
+      const texto = [humano, tecnico].filter(Boolean).join(' | ')
+      if (texto) return `${fallback} (HTTP ${res.status}): ${texto.slice(0, 600)}`
+    }
+  } catch { /* não é JSON da Meta: cai no corpo cru */ }
+
+  return `${fallback} (HTTP ${res.status}): ${corpo.slice(0, 600)}`
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -221,7 +236,7 @@ async function publishInstagram(account: PublishAccount, post: PublishPost) {
 
   const caption = buildCaption(post)
   const urlParam = (m: { url: string; type: string }): Record<string, string> =>
-    m.type === 'VIDEO' ? { video_url: m.url } : { image_url: m.url }
+    m.type === 'VIDEO' ? { video_url: m.url } : { image_url: jpgUrl(m.url) }
 
   // Carrossel: um container por item, depois um container CAROUSEL com os filhos
   if (post.format === 'CAROUSEL_INSTAGRAM' && media.length > 1) {
@@ -280,6 +295,17 @@ async function waitForInstagramContainer(creationId: string, accessToken: string
 // ─── TIKTOK ──────────────────────────────────────────────────────────────────
 
 const MAX_VIDEO_BYTES = 300 * 1024 * 1024
+
+// "JPEG is the only image format supported" — Instagram Content Publishing. PNG é
+// justamente o que mais sai de print e de export do Canva, e a recusa vem como
+// "Only photo or video can be accepted as media type", que não diz nada sobre
+// formato. Mesmo caminho do .mov: o Cloudinary converte na entrega.
+function jpgUrl(url: string) {
+  if (!url.includes('res.cloudinary.com') || !url.includes('/image/upload/')) return url
+  return url
+    .replace('/image/upload/', '/image/upload/f_jpg/')
+    .replace(/\.(png|webp|heic|heif|gif|avif|tiff?|bmp)$/i, '.jpg')
+}
 
 // iPhone grava .mov/HEVC, que o TikTok não aceita. O Cloudinary transcodifica sob
 // demanda pela própria URL, então nada precisa ser convertido à mão.
