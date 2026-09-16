@@ -239,14 +239,16 @@ async function graphGet(path: string, token: string) {
 // investigar depois. Então registramos aqui mesmo o que ele é e o que a Meta
 // de fato concedeu — granular_scopes diz a quais Páginas o consentimento valeu.
 async function diagnosticarTokenMeta(userToken: string) {
-  for (const rota of ['me?fields=id,name', 'me/permissions', 'me/businesses?fields=id,name']) {
+  // me/accounts sem fields: separa "token não enxerga Página nenhuma" de
+  // "um dos fields pedidos é que está barrando a resposta"
+  for (const rota of ['me?fields=id,name', 'me/accounts', 'me/permissions', 'me/businesses?fields=id,name']) {
     const r = await graphGet(rota, userToken)
     console.log(`[meta:diag] /${rota} → HTTP ${r.status} ${r.text.slice(0, 600)}`)
   }
 
   const appId = process.env['META_ID']
-  const appSecret = process.env['META_SECRET']
-  if (!appId || !appSecret) { console.log('[meta:diag] META_ID/META_SECRET ausentes — debug_token não consultado'); return }
+  const appSecret = process.env['META_SEC']
+  if (!appId || !appSecret) { console.log('[meta:diag] META_ID/META_SEC ausentes — debug_token não consultado'); return }
 
   const dbg = await graphGet(`debug_token?input_token=${encodeURIComponent(userToken)}`, `${appId}|${appSecret}`)
   console.log(`[meta:diag] debug_token → HTTP ${dbg.status} ${dbg.text.slice(0, 1200)}`)
