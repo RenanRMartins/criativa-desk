@@ -93,6 +93,20 @@ async function main() {
   }
   ok('projeto escolhido', projeto.name)
 
+  // Sem conta conectada o teste percorre tudo e não exercita nada — e antes
+  // disso ele ainda dizia "Fluxo íntegro". Falhar aqui, antes de criar post.
+  const contas = await req(`/api/social/accounts?projectId=${projeto.id}`)
+  if (!contas.ok) falhou('listar contas conectadas', contas.corpo)
+  const conectadas = contas.corpo as { provider: string; profileName: string }[]
+  const alvo = conectadas.filter(c => REDES.includes(c.provider))
+  if (alvo.length === 0) {
+    falhou('contas conectadas',
+      `nenhuma conta de ${REDES.join('/')} no projeto "${projeto.name}". ` +
+      `Conectadas aqui: ${conectadas.length ? conectadas.map(c => `${c.provider}/${c.profileName}`).join(', ') : 'nenhuma'}. ` +
+      `A conexão é por projeto — verifique se você conectou com o projeto certo ativo.`)
+  }
+  ok('contas conectadas', alvo.map(c => `${c.provider}/${c.profileName}`).join(', '))
+
   // 3. upload — foi aqui que a falta de credencial do Cloudinary passou despercebida
   const form = new FormData()
   form.append('file', new Blob([new Uint8Array(PNG_1X1)], { type: 'image/png' }), 'smoke.png')
@@ -153,13 +167,11 @@ async function main() {
   if (reprovados.length > 0) {
     falhou('publicar', reprovados.map(o => `${o.provider}: ${o.error}`).join(' | '))
   }
-  ok('publicado', outcomes.length
-    ? `${outcomes.length} conta(s), modo ${resultados.mock ? 'mock' : 'real'}`
-    : `nenhuma conta conectada, modo ${resultados.mock ? 'mock' : 'real'}`)
-
+  // publicar sem nenhum outcome não é sucesso: é o teste não ter feito nada
   if (outcomes.length === 0) {
-    console.log('  ! nenhuma conta social conectada neste projeto — o envio às redes não foi exercitado')
+    falhou('publicar', 'post marcado como PUBLISHED sem nenhum outcome — nada foi enviado a rede alguma')
   }
+  ok('publicado', `${outcomes.length} conta(s), modo ${resultados.mock ? 'mock' : 'real'}`)
 
   // a limpeza remove o post do NOSSO banco; na rede social ele continua no ar
   if (!resultados.mock && outcomes.length) {
