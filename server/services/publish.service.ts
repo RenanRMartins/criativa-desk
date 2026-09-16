@@ -223,6 +223,23 @@ async function publishFacebook(account: PublishAccount, post: PublishPost) {
  */
 const SUBCODIGO_BUSCA_TRANSITORIA = 2207052
 
+/**
+ * Repetir a MESMA URL nunca funcionou — quatro tentativas em 18s, todas
+ * recusadas — o que indica que a Meta guarda o resultado negativo por URL.
+ * O Cloudinary ignora parâmetro desconhecido e devolve o mesmo arquivo
+ * (verificado: `?cb=x` responde 200 e os mesmos 7207 bytes), então variar a
+ * query dá à Meta uma URL nova para o mesmo conteúdo.
+ */
+function variarUrl(params: Record<string, string>, tentativa: number) {
+  const marca = `cb=${Date.now()}-${tentativa}`
+  const variados = { ...params }
+  for (const chave of ['image_url', 'video_url']) {
+    const url = variados[chave]
+    if (url) variados[chave] = url + (url.includes('?') ? '&' : '?') + marca
+  }
+  return variados
+}
+
 // Cria um container de mídia e devolve o id. Stories não aceitam legenda.
 async function createInstagramContainer(
   account: PublishAccount,
@@ -234,7 +251,10 @@ async function createInstagramContainer(
 
   for (let tentativa = 1; tentativa <= tentativas; tentativa++) {
     feitas = tentativa
-    const body = new URLSearchParams({ access_token: account.accessToken, ...params })
+    const body = new URLSearchParams({
+      access_token: account.accessToken,
+      ...(tentativa === 1 ? params : variarUrl(params, tentativa)),
+    })
     const res = await fetch(`${GRAPH}/${account.profileId}/media`, { method: 'POST', body })
     if (res.ok) {
       const { id } = await res.json() as { id: string }
