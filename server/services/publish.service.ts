@@ -244,7 +244,7 @@ function variarUrl(params: Record<string, string>, tentativa: number) {
 async function createInstagramContainer(
   account: PublishAccount,
   params: Record<string, string>,
-  tentativas = 4,
+  tentativas = 6,
 ) {
   let ultimoErro = 'Instagram recusou o container de mídia'
   let feitas = 0
@@ -268,7 +268,9 @@ async function createInstagramContainer(
     const transitorio = subcodigoMeta(corpo) === SUBCODIGO_BUSCA_TRANSITORIA
     if (!transitorio || tentativa === tentativas) break
 
-    const espera = tentativa * 3000
+    // espera curta e fixa: o log mostrou falha com 3s, 6s e 9s e sucesso
+    // imediato logo depois — é sorteio, não tempo. Mais tentativas, menos espera.
+    const espera = 1500
     console.warn(`[instagram] busca de mídia falhou (tentativa ${tentativa}/${tentativas}), repetindo em ${espera}ms`)
     await sleep(espera)
   }

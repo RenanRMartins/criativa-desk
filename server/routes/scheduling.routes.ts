@@ -46,6 +46,23 @@ router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
     return
   }
 
+  // Publicar dentro da requisição HTTP tem um risco que já se materializou: o
+  // proxy do Railway devolveu "upstream error" e REPETIU o pedido, rodando a
+  // publicação duas vezes. Se a primeira tivesse dado certo antes de estourar,
+  // o cliente teria dois posts iguais na conta. Uma publicação por post.
+  // A trava vem depois das validações, para uma recusa rápida não prendê-la.
+  const EM_ANDAMENTO_MS = 10 * 60 * 1000
+  const marca = (post.publishResults ?? {}) as { publicandoDesde?: string }
+  const desde = marca.publicandoDesde ? new Date(marca.publicandoDesde).getTime() : 0
+  if (Date.now() - desde < EM_ANDAMENTO_MS) {
+    res.status(409).json({ message: 'Este post já está sendo publicado. Aguarde o resultado.' })
+    return
+  }
+  await prisma.post.update({
+    where: { id: post.id },
+    data: { publishResults: { publicandoDesde: new Date().toISOString() } },
+  })
+
   const outcomes = isMockMode()
     ? mockOutcomes(accounts)
     : await publishToAccounts(
