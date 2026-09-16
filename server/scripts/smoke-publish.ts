@@ -13,6 +13,8 @@
  *
  * SMOKE_PROJECT  trecho do nome do projeto (sem ele, pega o primeiro da lista)
  * SMOKE_NETWORKS redes separadas por vírgula (padrão: INSTAGRAM)
+ * SMOKE_FORMAT   FEED_INSTAGRAM | STORIES_INSTAGRAM | CAROUSEL_INSTAGRAM | REELS_INSTAGRAM
+ * SMOKE_IMAGE_URL usa esta URL em vez de subir imagem (isola mídia de rede)
  */
 
 import zlib from 'node:zlib'
@@ -26,6 +28,9 @@ const REDES = (process.env.SMOKE_NETWORKS ?? 'INSTAGRAM').split(',').map(s => s.
 // pula o upload e usa esta URL como mídia — serve para separar "nossa imagem é
 // o problema" de "a rede é o problema", trocando uma variável de cada vez
 const IMAGEM_URL = process.env.SMOKE_IMAGE_URL
+// cada formato segue um caminho diferente em publishInstagram(): STORIES não
+// aceita legenda, CAROUSEL cria um container por item antes do container pai
+const FORMATO = process.env.SMOKE_FORMAT ?? 'FEED_INSTAGRAM'
 
 /**
  * PNG de cor sólida no tamanho pedido, gerado aqui mesmo.
@@ -36,11 +41,11 @@ const IMAGEM_URL = process.env.SMOKE_IMAGE_URL
  * transformação em vez do fluxo. Gerar a imagem já no tamanho certo tira essa
  * variável, e sem carregar um blob base64 no meio do arquivo.
  */
-function pngSolido(lado: number, [r, g, b]: [number, number, number]) {
-  const pixels = Buffer.alloc(lado * 3)
-  for (let i = 0; i < lado; i++) pixels.set([r, g, b], i * 3)
+function pngSolido(largura: number, altura: number, [r, g, b]: [number, number, number]) {
+  const pixels = Buffer.alloc(largura * 3)
+  for (let i = 0; i < largura; i++) pixels.set([r, g, b], i * 3)
   const linha = Buffer.concat([Buffer.from([0]), pixels])   // byte de filtro por linha
-  const raw = Buffer.concat(Array.from({ length: lado }, () => linha))
+  const raw = Buffer.concat(Array.from({ length: altura }, () => linha))
 
   const pedaco = (tipo: string, dados: Buffer) => {
     const t = Buffer.from(tipo, 'ascii')
@@ -49,7 +54,7 @@ function pngSolido(lado: number, [r, g, b]: [number, number, number]) {
     return Buffer.concat([cab, t, dados, crc])
   }
   const ihdr = Buffer.alloc(13)
-  ihdr.writeUInt32BE(lado, 0); ihdr.writeUInt32BE(lado, 4)
+  ihdr.writeUInt32BE(largura, 0); ihdr.writeUInt32BE(altura, 4)
   ihdr[8] = 8; ihdr[9] = 2                                  // 8 bits por canal, RGB
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -59,7 +64,10 @@ function pngSolido(lado: number, [r, g, b]: [number, number, number]) {
   ])
 }
 
-const IMAGEM = pngSolido(1080, [0x6B, 0x2D, 0x3E])   // vinho da marca
+// Stories é retrato 9:16; feed e carrossel são quadrados
+const RETRATO = FORMATO.startsWith('STORIES') || FORMATO.startsWith('REELS')
+const [LARGURA, ALTURA] = RETRATO ? [1080, 1920] : [1080, 1080]
+const IMAGEM = pngSolido(LARGURA, ALTURA, [0x6B, 0x2D, 0x3E])   // vinho da marca
 
 let token = ''
 let falhas = 0
@@ -159,8 +167,8 @@ async function main() {
     method: 'POST',
     body: JSON.stringify({
       projectId: projeto.id,
-      title: `[smoke] ${new Date().toISOString()}`,
-      format: 'FEED_INSTAGRAM',
+      title: `[smoke ${FORMATO}] ${new Date().toISOString()}`,
+      format: FORMATO,
       networks: REDES,
       status: 'APPROVED',
       caption: 'teste automatizado',
