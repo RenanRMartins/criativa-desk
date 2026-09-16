@@ -237,7 +237,8 @@ async function main() {
     }
   }
   let publicado: PostFinal = {}
-  const limite = Date.now() + 120_000
+  // o worker repete em 20s e depois 90s; a janela precisa cobrir as três tentativas
+  const limite = Date.now() + 240_000
   while (Date.now() < limite) {
     await new Promise(r => setTimeout(r, 3000))
     const atual = await req(`/api/posts/${post.id}`)
@@ -253,7 +254,7 @@ async function main() {
     falhou('publicar', o.length ? o.map(x => `${x.provider}: ${x.error}`).join(' | ')
                                 : publicado.publishResults?.lastError ?? 'sem motivo registrado')
   }
-  if (publicado.status !== 'PUBLISHED') falhou('publicar', `status ficou ${publicado.status} após 2 minutos`)
+  if (publicado.status !== 'PUBLISHED') falhou('publicar', `status ficou ${publicado.status} após 4 minutos`)
 
   const resultados = publicado.publishResults
   if (!resultados) falhou('publicar', 'post publicado sem publishResults')

@@ -1,7 +1,10 @@
 import { prisma } from '../lib/prisma'
 import { isMockMode, mockOutcomes, publishToAccounts, selectPublishAccounts, type PublishPost } from '../services/publish.service'
 
-const TICK_MS = 60_000
+// 20s: o worker agora também atende o "publicar agora", onde alguém está
+// olhando a tela. Com tick de 60s uma retentativa demorava até um minuto
+// só para ser percebida.
+const TICK_MS = 20_000
 const MAX_ATTEMPTS = 3
 
 type PublishMeta = {
@@ -21,7 +24,7 @@ async function notifyMembers(projectId: string, title: string, message: string) 
   })
 }
 
-// A rota de publicar agora chama esta função direto, além do tick de 60s.
+// A rota de publicar agora chama esta função direto, além do tick periódico.
 // Sem a trava, os dois poderiam pegar o mesmo post ao mesmo tempo — o claim
 // atômico lá embaixo evitaria a publicação dupla, mas só depois de já ter
 // enviado para a rede, que é tarde demais.
@@ -103,8 +106,11 @@ async function processarPendentes() {
         await notifyMembers(post.projectId, 'Falha ao publicar',
           `"${post.title}" falhou após ${attempts} tentativas. Publique manualmente em Agendamentos.`).catch(() => {})
       } else {
-        // backoff exponencial: 2, 4 minutos até esgotar as tentativas
-        const nextAttemptAt = new Date(now.getTime() + 2 ** attempts * 60_000).toISOString()
+        // 20s e depois 90s. Era 2 e 4 minutos, dimensionado para post agendado;
+        // para publicação imediata isso é uma eternidade, e a falha do Instagram
+        // que estamos tratando é sorteio — repetir cedo resolve.
+        const espera = attempts === 1 ? 20_000 : 90_000
+        const nextAttemptAt = new Date(now.getTime() + espera).toISOString()
         await prisma.post.update({
           where: { id: post.id },
           data: { publishResults: { ...meta, attempts, lastError, nextAttemptAt } },
@@ -120,5 +126,5 @@ export function startPublishWorker() {
   setInterval(() => {
     publishDuePosts().catch(err => console.error('[publish.worker] tick error:', err))
   }, TICK_MS)
-  console.log('[publish.worker] Agendador ativo — posts agendados publicam sozinhos (verificação a cada 60s)')
+  console.log(`[publish.worker] Agendador ativo — verificação a cada ${TICK_MS / 1000}s`)
 }
