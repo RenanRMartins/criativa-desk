@@ -42,8 +42,18 @@ export async function publishDuePosts() {
 
 async function processarPendentes() {
   const now = new Date()
+  // O formulário grava a data em publishDate e nunca em scheduledAt, então um
+  // post agendado ficava com scheduledAt null — e `null` não satisfaz `lte`.
+  // Resultado: post agendado NUNCA publicava, sem erro e sem aviso. O fallback
+  // vale também para os posts que já estão no banco nesse estado.
   const due = await prisma.post.findMany({
-    where: { status: 'SCHEDULED', scheduledAt: { lte: now } },
+    where: {
+      status: 'SCHEDULED',
+      OR: [
+        { scheduledAt: { lte: now } },
+        { scheduledAt: null, publishDate: { lte: now } },
+      ],
+    },
     include: { media: true },
   })
 

@@ -66,10 +66,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 
   const { projectId, title, format, networks, status, caption, hashtags, publishDate, theme, observations, targetAccountIds, media } = body.data
+  const quando = publishDate ? new Date(publishDate) : undefined
   const post = await prisma.post.create({
     data: {
       projectId, title, format: format as never, networks: networks as never,
-      status: (status ?? 'IDEA') as never, caption, hashtags, publishDate: publishDate ? new Date(publishDate) : undefined,
+      status: (status ?? 'IDEA') as never, caption, hashtags, publishDate: quando,
+      // o formulário só preenche publishDate, mas quem publica olha scheduledAt:
+      // sem esta linha o post nasce agendado e nunca é publicado
+      scheduledAt: status === 'SCHEDULED' ? quando : undefined,
       theme, observations, targetAccountIds, authorId: req.userId!,
       media: media.length
         ? { create: media.map((m, i) => ({ url: m.url, publicId: m.publicId, type: m.type as never, order: i })) }
@@ -86,7 +90,15 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 
-  const updated = await prisma.post.update({ where: { id: req.params.id as string }, data: req.body })
+  // mesma armadilha da criação: virar SCHEDULED sem scheduledAt deixa o post
+  // parado para sempre, porque o worker busca por scheduledAt
+  const dados = { ...req.body } as Record<string, unknown>
+  if (dados['status'] === 'SCHEDULED' && !dados['scheduledAt']) {
+    const quando = dados['publishDate'] ?? post.publishDate
+    if (quando) dados['scheduledAt'] = quando
+  }
+
+  const updated = await prisma.post.update({ where: { id: req.params.id as string }, data: dados })
   res.json(updated)
 })
 

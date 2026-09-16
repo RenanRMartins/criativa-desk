@@ -16,6 +16,7 @@
  * SMOKE_FORMAT   FEED_INSTAGRAM | STORIES_INSTAGRAM | CAROUSEL_INSTAGRAM | REELS_INSTAGRAM
  * SMOKE_IMAGE_URL usa esta URL em vez de subir imagem (isola mídia de rede)
  * SMOKE_VIDEO    caminho de um vídeo local, para exercitar Reels/vídeo
+ * SMOKE_AGENDAR  segundos no futuro: testa o post agendado em vez de publicar agora
  */
 
 import zlib from 'node:zlib'
@@ -37,6 +38,9 @@ const FORMATO = process.env.SMOKE_FORMAT ?? 'FEED_INSTAGRAM'
 // caminho de um vídeo local; troca a mídia do teste de imagem para vídeo,
 // que é outro caminho inteiro em publishInstagram (REELS, processamento assíncrono)
 const VIDEO = process.env.SMOKE_VIDEO
+// segundos no futuro: cria o post AGENDADO e não chama a rota de publicar —
+// quem tem de acordar sozinho é o worker, que é o caminho real do produto
+const AGENDAR = Number(process.env.SMOKE_AGENDAR ?? 0)
 
 /**
  * PNG de cor sólida no tamanho pedido, gerado aqui mesmo.
@@ -216,7 +220,8 @@ async function main() {
       title: `[smoke ${FORMATO}] ${new Date().toISOString()}`,
       format: FORMATO,
       networks: REDES,
-      status: 'APPROVED',
+      status: AGENDAR ? 'SCHEDULED' : 'APPROVED',
+      ...(AGENDAR ? { publishDate: new Date(Date.now() + AGENDAR * 1000).toISOString() } : {}),
       caption: 'teste automatizado',
       hashtags: ['#smoke'],
       media: midiasEnviadas,
@@ -242,13 +247,22 @@ async function main() {
   }
   ok('mídia persistida', `${midias.length} PostMedia`)
 
-  // 6. publicação — a rota enfileira e devolve 202; quem publica é o worker
-  const publicar = await req(`/api/scheduling/${post.id}/publish`, {
-    method: 'POST',
-    body: JSON.stringify({}),
-  })
-  if (publicar.status !== 202) falhou('enfileirar publicação', publicar.corpo)
-  ok('publicação enfileirada')
+  // 6. publicação
+  if (AGENDAR) {
+    // confere que o post nasceu com scheduledAt — sem ele o worker nunca acha,
+    // e o post fica "agendado" para sempre sem erro nenhum
+    const criado = await req(`/api/posts/${post.id}`)
+    const quando = (criado.corpo as { scheduledAt?: string }).scheduledAt
+    if (!quando) falhou('agendamento', 'post criado como SCHEDULED mas sem scheduledAt — o worker nunca vai encontrá-lo')
+    ok('agendado', `para ${new Date(quando).toLocaleTimeString('pt-BR')} (daqui a ${AGENDAR}s)`)
+  } else {
+    const publicar = await req(`/api/scheduling/${post.id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    if (publicar.status !== 202) falhou('enfileirar publicação', publicar.corpo)
+    ok('publicação enfileirada')
+  }
 
   // acompanha até o post sair de SCHEDULED; o worker tem backoff de minutos,
   // então aqui esperamos só a primeira rodada
@@ -263,7 +277,7 @@ async function main() {
   let publicado: PostFinal = {}
   // o worker repete em 20s e depois 90s; a janela precisa cobrir as três tentativas.
   // Vídeo ainda passa pelo processamento do Instagram, que leva minutos.
-  const limite = Date.now() + (VIDEO ? 600_000 : 240_000)
+  const limite = Date.now() + (VIDEO ? 600_000 : 240_000) + AGENDAR * 1000
   while (Date.now() < limite) {
     await new Promise(r => setTimeout(r, 3000))
     const atual = await req(`/api/posts/${post.id}`)
