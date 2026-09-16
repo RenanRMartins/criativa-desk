@@ -67,7 +67,14 @@ function pngSolido(largura: number, altura: number, [r, g, b]: [number, number, 
 // Stories é retrato 9:16; feed e carrossel são quadrados
 const RETRATO = FORMATO.startsWith('STORIES') || FORMATO.startsWith('REELS')
 const [LARGURA, ALTURA] = RETRATO ? [1080, 1920] : [1080, 1080]
-const IMAGEM = pngSolido(LARGURA, ALTURA, [0x6B, 0x2D, 0x3E])   // vinho da marca
+// carrossel com uma imagem só cai no ramo do feed — precisa de mais de uma
+// para de fato exercitar o caminho do carrossel
+const QUANTIDADE = FORMATO.startsWith('CAROUSEL') ? 3 : 1
+const CORES: [number, number, number][] = [
+  [0x6B, 0x2D, 0x3E],   // vinho
+  [0xC9, 0xA9, 0x6E],   // dourado
+  [0x0F, 0x0F, 0x0F],   // preto
+]
 
 let token = ''
 let falhas = 0
@@ -141,25 +148,26 @@ async function main() {
   ok('contas conectadas', alvo.map(c => `${c.provider}/${c.profileName}`).join(', '))
 
   // 3. upload — foi aqui que a falta de credencial do Cloudinary passou despercebida
-  let urlMidia: string
-  let publicId: string | undefined
+  const midiasEnviadas: { url: string; publicId?: string; type: 'IMAGE'; order: number }[] = []
   if (IMAGEM_URL) {
-    urlMidia = IMAGEM_URL
-    ok('upload de mídia', `pulado — usando SMOKE_IMAGE_URL`)
+    midiasEnviadas.push({ url: IMAGEM_URL, type: 'IMAGE', order: 0 })
+    ok('upload de mídia', 'pulado — usando SMOKE_IMAGE_URL')
   } else {
-    const form = new FormData()
-    form.append('file', new Blob([new Uint8Array(IMAGEM)], { type: 'image/png' }), 'smoke.png')
-    const upload = await req('/api/upload', { method: 'POST', body: form })
-    if (!upload.ok) falhou('upload de mídia', upload.corpo)
-    const arquivo = upload.corpo as { url?: string; format?: string; width?: number; height?: number }
-    if (!arquivo.url) falhou('upload de mídia', 'resposta sem url')
-    // o upload converte para JPEG; se voltar png o Instagram vai recusar adiante
-    if (arquivo.format !== 'jpg') {
-      falhou('upload de mídia', `esperava format=jpg (Instagram só aceita JPEG), veio "${arquivo.format}"`)
+    for (let i = 0; i < QUANTIDADE; i++) {
+      const form = new FormData()
+      const bytes = pngSolido(LARGURA, ALTURA, CORES[i % CORES.length]!)
+      form.append('file', new Blob([new Uint8Array(bytes)], { type: 'image/png' }), `smoke-${i}.png`)
+      const upload = await req('/api/upload', { method: 'POST', body: form })
+      if (!upload.ok) falhou('upload de mídia', upload.corpo)
+      const arquivo = upload.corpo as { url?: string; publicId?: string; format?: string; width?: number; height?: number }
+      if (!arquivo.url) falhou('upload de mídia', 'resposta sem url')
+      // o upload converte para JPEG; se voltar png o Instagram vai recusar adiante
+      if (arquivo.format !== 'jpg') {
+        falhou('upload de mídia', `esperava format=jpg (Instagram só aceita JPEG), veio "${arquivo.format}"`)
+      }
+      midiasEnviadas.push({ url: arquivo.url, publicId: arquivo.publicId, type: 'IMAGE', order: i })
+      if (i === 0) ok('upload de mídia', `${arquivo.width}x${arquivo.height} ${arquivo.format}${QUANTIDADE > 1 ? ` · ${QUANTIDADE} imagens` : ''}`)
     }
-    urlMidia = arquivo.url
-    publicId = (upload.corpo as { publicId?: string }).publicId
-    ok('upload de mídia', `${arquivo.width}x${arquivo.height} ${arquivo.format} — ${urlMidia.slice(-42)}`)
   }
 
   // 4. criação do post COM mídia — a rota ignorava mídia por completo
@@ -173,7 +181,7 @@ async function main() {
       status: 'APPROVED',
       caption: 'teste automatizado',
       hashtags: ['#smoke'],
-      media: [{ url: urlMidia, publicId, type: 'IMAGE' }],
+      media: midiasEnviadas,
     }),
   })
   if (criar.status !== 201) falhou('criar post', criar.corpo)
@@ -185,11 +193,14 @@ async function main() {
   const lido = await req(`/api/posts/${post.id}`)
   if (!lido.ok) falhou('reler post', lido.corpo)
   const midias = (lido.corpo as { media?: { url: string }[] }).media ?? []
-  if (midias.length !== 1) {
-    falhou('mídia persistida', `esperava 1 PostMedia, encontrou ${midias.length}`)
+  // carrossel com 1 item cai no ramo do feed lá no publish.service e o teste
+  // passaria sem exercitar carrossel nenhum
+  if (midias.length !== midiasEnviadas.length) {
+    falhou('mídia persistida', `esperava ${midiasEnviadas.length} PostMedia, encontrou ${midias.length}`)
   }
-  if (midias[0]!.url !== urlMidia) {
-    falhou('mídia persistida', `url divergente: ${midias[0]!.url}`)
+  const urlMidia = midiasEnviadas[0]!.url
+  if (!midias.some(m => m.url === urlMidia)) {
+    falhou('mídia persistida', `url divergente: ${midias.map(m => m.url).join(', ')}`)
   }
   ok('mídia persistida', '1 PostMedia')
 
