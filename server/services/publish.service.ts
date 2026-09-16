@@ -260,6 +260,9 @@ async function publishInstagram(account: PublishAccount, post: PublishPost) {
       children: children.join(','),
       caption,
     })
+    // o container pai também precisa ficar pronto: esperar só os filhos deixava
+    // a publicação cair em 9007/2207027 ("a mídia não está pronta")
+    await waitForInstagramContainer(carouselId, account.accessToken)
     return publishInstagramContainer(account, carouselId)
   }
 
