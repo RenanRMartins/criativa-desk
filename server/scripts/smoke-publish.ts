@@ -4,19 +4,37 @@
  * Cobre o encadeamento que falhou silenciosamente em 15/09/2026:
  * upload de mídia → post criado COM PostMedia → publicação → outcomes.
  *
+ * ATENÇÃO: contra um backend com SOCIAL_MOCK_MODE=false isto PUBLICA DE VERDADE
+ * nas contas conectadas do projeto. O post é removido do nosso banco no fim,
+ * mas continua no ar na rede social — o script imprime os IDs para apagar.
+ *
  * Uso:  npm run smoke              (localhost:4000)
- *       SMOKE_BASE_URL=https://... npm run smoke
+ *       SMOKE_BASE_URL=https://... SMOKE_PROJECT=sasuke SMOKE_NETWORKS=INSTAGRAM npm run smoke
+ *
+ * SMOKE_PROJECT  trecho do nome do projeto (sem ele, pega o primeiro da lista)
+ * SMOKE_NETWORKS redes separadas por vírgula (padrão: INSTAGRAM)
  */
 
 const BASE = process.env.SMOKE_BASE_URL ?? 'http://localhost:4000'
 const EMAIL = process.env.SMOKE_EMAIL ?? 'admin@criativadesk.com'
 const SENHA = process.env.SMOKE_PASSWORD ?? 'admin123'
+// sem isto o teste pega lista[0], que pode ser o projeto de um cliente
+const PROJETO = process.env.SMOKE_PROJECT
+const REDES = (process.env.SMOKE_NETWORKS ?? 'INSTAGRAM').split(',').map(s => s.trim()).filter(Boolean)
 
 // PNG 1x1 — evita depender de arquivo no disco
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
 )
+
+// O Instagram recusa imagem abaixo de 320px, então o 1x1 faria o teste falhar
+// por tamanho e não por defeito nosso. O Cloudinary já está no caminho: pedimos
+// a mesma imagem esticada para 1080x1080 na entrega.
+function em1080(url: string) {
+  if (!url.includes('res.cloudinary.com') || !url.includes('/image/upload/')) return url
+  return url.replace('/image/upload/', '/image/upload/w_1080,h_1080,c_pad,b_rgb:6B2D3E/')
+}
 
 let token = ''
 let falhas = 0
@@ -67,8 +85,13 @@ async function main() {
   if (!projetos.ok) falhou('listar projetos', projetos.corpo)
   const lista = projetos.corpo as { id: string; name: string }[]
   if (lista.length === 0) falhou('listar projetos', 'usuário não é membro de nenhum projeto')
-  const projeto = lista[0]!
-  ok('projeto encontrado', projeto.name)
+  const projeto = PROJETO
+    ? lista.find(p => p.name.toLowerCase().includes(PROJETO.toLowerCase()))
+    : lista[0]
+  if (!projeto) {
+    falhou('escolher projeto', `SMOKE_PROJECT="${PROJETO}" não bateu com nenhum de: ${lista.map(p => p.name).join(', ')}`)
+  }
+  ok('projeto escolhido', projeto.name)
 
   // 3. upload — foi aqui que a falta de credencial do Cloudinary passou despercebida
   const form = new FormData()
@@ -77,7 +100,8 @@ async function main() {
   if (!upload.ok) falhou('upload de mídia', upload.corpo)
   const arquivo = upload.corpo as { url?: string; publicId?: string }
   if (!arquivo.url) falhou('upload de mídia', 'resposta sem url')
-  ok('upload de mídia', arquivo.url.slice(0, 60))
+  const urlMidia = em1080(arquivo.url)
+  ok('upload de mídia', urlMidia === arquivo.url ? arquivo.url.slice(0, 60) : '1080x1080 via Cloudinary')
 
   // 4. criação do post COM mídia — a rota ignorava mídia por completo
   const criar = await req('/api/posts', {
@@ -86,11 +110,11 @@ async function main() {
       projectId: projeto.id,
       title: `[smoke] ${new Date().toISOString()}`,
       format: 'FEED_INSTAGRAM',
-      networks: ['INSTAGRAM'],
+      networks: REDES,
       status: 'APPROVED',
       caption: 'teste automatizado',
       hashtags: ['#smoke'],
-      media: [{ url: arquivo.url, publicId: arquivo.publicId, type: 'IMAGE' }],
+      media: [{ url: urlMidia, publicId: arquivo.publicId, type: 'IMAGE' }],
     }),
   })
   if (criar.status !== 201) falhou('criar post', criar.corpo)
@@ -105,7 +129,7 @@ async function main() {
   if (midias.length !== 1) {
     falhou('mídia persistida', `esperava 1 PostMedia, encontrou ${midias.length}`)
   }
-  if (midias[0]!.url !== arquivo.url) {
+  if (midias[0]!.url !== urlMidia) {
     falhou('mídia persistida', `url divergente: ${midias[0]!.url}`)
   }
   ok('mídia persistida', '1 PostMedia')
@@ -118,7 +142,7 @@ async function main() {
   if (!publicar.ok) falhou('publicar', publicar.corpo)
   const publicado = publicar.corpo as {
     status?: string
-    publishResults?: { mock?: boolean; outcomes?: { ok: boolean; provider: string; error?: string }[] }
+    publishResults?: { mock?: boolean; outcomes?: { ok: boolean; provider: string; error?: string; externalId?: string }[] }
   }
   if (publicado.status !== 'PUBLISHED') falhou('publicar', `status ficou ${publicado.status}`)
 
@@ -135,6 +159,12 @@ async function main() {
 
   if (outcomes.length === 0) {
     console.log('  ! nenhuma conta social conectada neste projeto — o envio às redes não foi exercitado')
+  }
+
+  // a limpeza remove o post do NOSSO banco; na rede social ele continua no ar
+  if (!resultados.mock && outcomes.length) {
+    console.log('\n  Publicações reais criadas — apagar na mão em cada rede:')
+    for (const o of outcomes) console.log(`    ${o.provider}: ${o.externalId ?? '(sem id)'}`)
   }
 }
 
