@@ -244,7 +244,7 @@ function variarUrl(params: Record<string, string>, tentativa: number) {
 async function createInstagramContainer(
   account: PublishAccount,
   params: Record<string, string>,
-  tentativas = 6,
+  tentativas = 12,
 ) {
   let ultimoErro = 'Instagram recusou o container de mídia'
   let feitas = 0
@@ -268,8 +268,9 @@ async function createInstagramContainer(
     const transitorio = subcodigoMeta(corpo) === SUBCODIGO_BUSCA_TRANSITORIA
     if (!transitorio || tentativa === tentativas) break
 
-    // espera curta e fixa: o log mostrou falha com 3s, 6s e 9s e sucesso
-    // imediato logo depois — é sorteio, não tempo. Mais tentativas, menos espera.
+    // Espera curta e fixa: o log mostrou falha com 3s, 6s e 9s e sucesso
+    // imediato logo depois — esperar mais não ajuda, insistir ajuda. Com o
+    // envio rodando em segundo plano, 12 tentativas custam 18s e ninguém espera.
     const espera = 1500
     console.warn(`[instagram] busca de mídia falhou (tentativa ${tentativa}/${tentativas}), repetindo em ${espera}ms`)
     await sleep(espera)
@@ -343,6 +344,9 @@ async function publishInstagram(account: PublishAccount, post: PublishPost) {
     for (const [indice, item] of media.entries()) {
       // sem isto, o erro diz só a URL e não dá para saber se falha sempre na
       // mesma posição do carrossel ou na mesma imagem
+      // Cada filho precisou de mais tentativas que o anterior (4, 5, mais de 6),
+      // como se as buscas consumissem uma cota. A pausa dá folga entre elas.
+      if (indice > 0) await sleep(2000)
       console.log(`[instagram] carrossel: criando filho ${indice + 1}/${media.length} — ${item.url.split('/').pop()}`)
       const childId = await createInstagramContainer(account, {
         ...urlParam(item),
