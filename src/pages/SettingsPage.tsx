@@ -31,6 +31,7 @@ const NETWORK_LIST = (
 const OAUTH_ERRORS: Record<string, string> = {
   cancelled: 'Você cancelou a autorização, ou ela expirou. Tente conectar de novo.',
   sem_paginas: 'Autorização concluída, mas nenhuma Página foi encontrada na sua conta. Verifique se você escolheu ao menos uma Página durante o login e se ela pertence a um portfólio empresarial.',
+  sem_ig: 'A Página foi encontrada, mas nenhuma conta do Instagram Business está vinculada a ela. Vincule o Instagram à Página nas configurações da Página e conecte de novo.',
   failed: 'Falha ao processar a autorização. O motivo detalhado está nos logs do servidor.',
 }
 

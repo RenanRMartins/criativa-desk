@@ -224,27 +224,80 @@ type MetaPage = {
   instagram_business_account?: { id: string; username?: string; profile_picture_url?: string }
 }
 
+const META_PAGE_FIELDS = 'id,name,access_token,picture{url},instagram_business_account{id,username,profile_picture_url}'
+
+async function graphGet(path: string, token: string) {
+  const sep = path.includes('?') ? '&' : '?'
+  const res = await fetch(`https://graph.facebook.com/v21.0/${path}${sep}access_token=${encodeURIComponent(token)}`)
+  const text = await res.text()
+  let json: { data?: unknown[] } | null = null
+  try { json = JSON.parse(text) } catch { /* corpo não-JSON fica só em text */ }
+  return { ok: res.ok, status: res.status, text, json }
+}
+
+// Quando nenhuma Página aparece, o token é descartado e não sobra nada para
+// investigar depois. Então registramos aqui mesmo o que ele é e o que a Meta
+// de fato concedeu — granular_scopes diz a quais Páginas o consentimento valeu.
+async function diagnosticarTokenMeta(userToken: string) {
+  for (const rota of ['me?fields=id,name', 'me/permissions', 'me/businesses?fields=id,name']) {
+    const r = await graphGet(rota, userToken)
+    console.log(`[meta:diag] /${rota} → HTTP ${r.status} ${r.text.slice(0, 600)}`)
+  }
+
+  const appId = process.env['META_ID']
+  const appSecret = process.env['META_SECRET']
+  if (!appId || !appSecret) { console.log('[meta:diag] META_ID/META_SECRET ausentes — debug_token não consultado'); return }
+
+  const dbg = await graphGet(`debug_token?input_token=${encodeURIComponent(userToken)}`, `${appId}|${appSecret}`)
+  console.log(`[meta:diag] debug_token → HTTP ${dbg.status} ${dbg.text.slice(0, 1200)}`)
+}
+
+// Renan administra a Página pelo portfólio empresarial, não por papel pessoal.
+// /me/accounts lista Páginas com papel direto, então pode voltar vazio mesmo com
+// tudo concedido — nesse caso as Páginas estão penduradas no portfólio.
+async function paginasDoPortfolio(userToken: string): Promise<MetaPage[]> {
+  const negocios = await graphGet('me/businesses?fields=id,name', userToken)
+  const lista = (negocios.json?.data ?? []) as { id: string; name: string }[]
+  if (!lista.length) { console.log('[meta] nenhum portfólio empresarial visível para este token'); return [] }
+
+  const encontradas: MetaPage[] = []
+  for (const negocio of lista) {
+    for (const borda of ['owned_pages', 'client_pages']) {
+      const r = await graphGet(`${negocio.id}/${borda}?fields=${META_PAGE_FIELDS}`, userToken)
+      const paginas = (r.json?.data ?? []) as MetaPage[]
+      console.log(`[meta] portfólio ${negocio.name}/${borda} → ` +
+        (r.ok ? `${paginas.length} Página(s): ${paginas.map(p => `${p.name}${p.access_token ? '' : ' (SEM token)'}`).join(', ')}`
+              : `HTTP ${r.status} ${r.text.slice(0, 250)}`))
+      for (const p of paginas) {
+        if (p.access_token && !encontradas.some(e => e.id === p.id)) encontradas.push(p)
+      }
+    }
+  }
+  return encontradas
+}
+
 // Uma SocialAccount por Página (FACEBOOK) ou por conta IG Business vinculada (INSTAGRAM).
 // O accessToken guardado é o token da Página — é ele que publica.
 async function saveMetaTargets(projectId: string, network: string, userToken: string) {
-  const fields = 'id,name,access_token,picture{url},instagram_business_account{id,username,profile_picture_url}'
-  const res = await fetch(`https://graph.facebook.com/v21.0/me/accounts?fields=${fields}&access_token=${userToken}`)
-  if (!res.ok) {
-    const detalhe = await res.text().catch(() => '')
-    console.error(`[meta] /me/accounts falhou (HTTP ${res.status}): ${detalhe.slice(0, 300)}`)
-    return 0
-  }
+  const res = await graphGet(`me/accounts?fields=${META_PAGE_FIELDS}`, userToken)
+  if (!res.ok) console.error(`[meta] /me/accounts falhou (HTTP ${res.status}): ${res.text.slice(0, 300)}`)
 
-  const { data } = await res.json() as { data?: MetaPage[] }
-  const pages = data ?? []
+  let pages = (res.json?.data ?? []) as MetaPage[]
   console.log(`[meta] ${network}: /me/accounts devolveu ${pages.length} Página(s)` +
     (pages.length ? ` — ${pages.map(p => `${p.name}${p.instagram_business_account ? ' (com IG)' : ''}`).join(', ')}` : ''))
+
+  if (pages.length === 0) {
+    await diagnosticarTokenMeta(userToken)
+    pages = await paginasDoPortfolio(userToken)
+    console.log(`[meta] ${network}: portfólio devolveu ${pages.length} Página(s)`)
+  }
+
   let saved = 0
 
   for (const page of pages) {
     if (network === 'INSTAGRAM') {
       const ig = page.instagram_business_account
-      if (!ig) continue
+      if (!ig) { console.log(`[meta] Página ${page.name} não tem conta Instagram Business vinculada`); continue }
       await saveSocialAccount({
         projectId,
         provider: 'INSTAGRAM',
@@ -266,7 +319,7 @@ async function saveMetaTargets(projectId: string, network: string, userToken: st
     saved++
   }
 
-  return saved
+  return { saved, paginas: pages.length }
 }
 
 router.get('/meta/auth-url', authMiddleware, (req: AuthRequest, res: Response) => {
@@ -313,11 +366,13 @@ router.get('/meta/callback', async (req: Request, res: Response) => {
 
     // Publicar acontece na Página (FB) ou na conta Instagram Business vinculada a ela,
     // nunca no perfil pessoal — por isso guardamos a Página e o token dela.
-    const saved = await saveMetaTargets(projectId, network, accessToken)
+    const { saved, paginas } = await saveMetaTargets(projectId, network, accessToken)
 
     if (saved === 0) {
-      // sem App Review aprovado o consentimento volta sem pages_show_list
-      res.redirect(`${frontend}/settings?oauth_error=sem_paginas`); return
+      // "sem_ig" separa os dois becos: Página visível mas sem Instagram Business
+      // vinculado ≠ nenhuma Página visível para o token
+      const motivo = paginas > 0 && network === 'INSTAGRAM' ? 'sem_ig' : 'sem_paginas'
+      res.redirect(`${frontend}/settings?oauth_error=${motivo}`); return
     }
     res.redirect(`${frontend}/settings?oauth_success=${network.toLowerCase()}`)
   } catch (err) {
