@@ -398,9 +398,11 @@ async function publishInstagram(account: PublishAccount, post: PublishPost) {
  * container ficava pronto antes de a gente pedir a publicação.
  *
  * Consulta antes de dormir, para que imagem já pronta não pague espera nenhuma.
+ * 60 tentativas (~3min) porque vídeo é processado de forma assíncrona e demora;
+ * imagem sai na primeira volta e não paga nada por esse teto ser alto.
  */
 async function waitForInstagramContainer(creationId: string, accessToken: string) {
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 60; attempt++) {
     const res = await fetch(`${GRAPH}/${creationId}?fields=status_code,status&access_token=${accessToken}`)
     if (res.ok) {
       const { status_code, status } = await res.json() as { status_code?: string; status?: string }

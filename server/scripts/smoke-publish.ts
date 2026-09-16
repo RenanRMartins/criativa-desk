@@ -15,9 +15,12 @@
  * SMOKE_NETWORKS redes separadas por vírgula (padrão: INSTAGRAM)
  * SMOKE_FORMAT   FEED_INSTAGRAM | STORIES_INSTAGRAM | CAROUSEL_INSTAGRAM | REELS_INSTAGRAM
  * SMOKE_IMAGE_URL usa esta URL em vez de subir imagem (isola mídia de rede)
+ * SMOKE_VIDEO    caminho de um vídeo local, para exercitar Reels/vídeo
  */
 
 import zlib from 'node:zlib'
+import { readFileSync } from 'node:fs'
+import { basename } from 'node:path'
 
 const BASE = process.env.SMOKE_BASE_URL ?? 'http://localhost:4000'
 const EMAIL = process.env.SMOKE_EMAIL ?? 'admin@criativadesk.com'
@@ -31,6 +34,9 @@ const IMAGEM_URL = process.env.SMOKE_IMAGE_URL
 // cada formato segue um caminho diferente em publishInstagram(): STORIES não
 // aceita legenda, CAROUSEL cria um container por item antes do container pai
 const FORMATO = process.env.SMOKE_FORMAT ?? 'FEED_INSTAGRAM'
+// caminho de um vídeo local; troca a mídia do teste de imagem para vídeo,
+// que é outro caminho inteiro em publishInstagram (REELS, processamento assíncrono)
+const VIDEO = process.env.SMOKE_VIDEO
 
 /**
  * PNG de cor sólida no tamanho pedido, gerado aqui mesmo.
@@ -152,10 +158,28 @@ async function main() {
   ok('contas conectadas', alvo.map(c => `${c.provider}/${c.profileName}`).join(', '))
 
   // 3. upload — foi aqui que a falta de credencial do Cloudinary passou despercebida
-  const midiasEnviadas: { url: string; publicId?: string; type: 'IMAGE'; order: number }[] = []
+  const midiasEnviadas: { url: string; publicId?: string; type: 'IMAGE' | 'VIDEO'; order: number }[] = []
   if (IMAGEM_URL) {
     midiasEnviadas.push({ url: IMAGEM_URL, type: 'IMAGE', order: 0 })
     ok('upload de mídia', 'pulado — usando SMOKE_IMAGE_URL')
+  } else if (VIDEO) {
+    const bytes = readFileSync(VIDEO)
+    const nome = basename(VIDEO)
+    const tipo = nome.toLowerCase().endsWith('.mov') ? 'video/quicktime' : 'video/mp4'
+    console.log(`  … enviando ${nome} (${(bytes.length / 1048576).toFixed(1)}MB), pode demorar`)
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array(bytes)], { type: tipo }), nome)
+    const upload = await req('/api/upload', { method: 'POST', body: form })
+    if (!upload.ok) falhou('upload de vídeo', upload.corpo)
+    const arq = upload.corpo as { url?: string; publicId?: string; format?: string; width?: number; height?: number }
+    if (!arq.url) falhou('upload de vídeo', 'resposta sem url')
+    midiasEnviadas.push({ url: arq.url, publicId: arq.publicId, type: 'VIDEO', order: 0 })
+    ok('upload de vídeo', `${arq.width}x${arq.height} ${arq.format} — ${arq.url.split('/').pop()}`)
+
+    // HEAD para não baixar o arquivo inteiro só para saber se está servindo
+    const r = await fetch(arq.url, { method: 'HEAD' })
+    if (!r.ok) falhou('vídeo acessível', `HTTP ${r.status} em ${arq.url}`)
+    ok('vídeo acessível', `HTTP ${r.status} ${r.headers.get('content-type')} ${r.headers.get('content-length')}B`)
   } else {
     for (let i = 0; i < QUANTIDADE; i++) {
       const form = new FormData()
@@ -237,8 +261,9 @@ async function main() {
     }
   }
   let publicado: PostFinal = {}
-  // o worker repete em 20s e depois 90s; a janela precisa cobrir as três tentativas
-  const limite = Date.now() + 240_000
+  // o worker repete em 20s e depois 90s; a janela precisa cobrir as três tentativas.
+  // Vídeo ainda passa pelo processamento do Instagram, que leva minutos.
+  const limite = Date.now() + (VIDEO ? 600_000 : 240_000)
   while (Date.now() < limite) {
     await new Promise(r => setTimeout(r, 3000))
     const atual = await req(`/api/posts/${post.id}`)
@@ -254,7 +279,7 @@ async function main() {
     falhou('publicar', o.length ? o.map(x => `${x.provider}: ${x.error}`).join(' | ')
                                 : publicado.publishResults?.lastError ?? 'sem motivo registrado')
   }
-  if (publicado.status !== 'PUBLISHED') falhou('publicar', `status ficou ${publicado.status} após 4 minutos`)
+  if (publicado.status !== 'PUBLISHED') falhou('publicar', `status ficou ${publicado.status} após ${VIDEO ? 10 : 4} minutos`)
 
   const resultados = publicado.publishResults
   if (!resultados) falhou('publicar', 'post publicado sem publishResults')
