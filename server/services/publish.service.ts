@@ -75,12 +75,10 @@ function sortedMedia(post: PublishPost) {
   return [...post.media].sort((a, b) => a.order - b.order)
 }
 
-async function describeError(res: Response, fallback: string) {
-  let corpo = ''
-  try {
-    corpo = await res.text()
-  } catch { /* corpo ilegível */ }
-  if (!corpo) return `${fallback} (HTTP ${res.status})`
+// separado de describeError porque o corpo da resposta só pode ser lido uma vez,
+// e quem faz retry precisa inspecionar o erro antes de formatá-lo
+function formatMetaError(status: number, corpo: string, fallback: string) {
+  if (!corpo) return `${fallback} (HTTP ${status})`
 
   // A Meta manda a explicação legível em error_user_msg, no fim do JSON — que é
   // justamente onde o corte caía. Promove esses campos antes de truncar.
@@ -91,11 +89,25 @@ async function describeError(res: Response, fallback: string) {
       const tecnico = [e['message'], e['code'] && `code ${e['code']}`, e['error_subcode'] && `subcode ${e['error_subcode']}`]
         .filter(Boolean).join(', ')
       const texto = [humano, tecnico].filter(Boolean).join(' | ')
-      if (texto) return `${fallback} (HTTP ${res.status}): ${texto.slice(0, 600)}`
+      if (texto) return `${fallback} (HTTP ${status}): ${texto.slice(0, 600)}`
     }
   } catch { /* não é JSON da Meta: cai no corpo cru */ }
 
-  return `${fallback} (HTTP ${res.status}): ${corpo.slice(0, 600)}`
+  return `${fallback} (HTTP ${status}): ${corpo.slice(0, 600)}`
+}
+
+async function describeError(res: Response, fallback: string) {
+  let corpo = ''
+  try {
+    corpo = await res.text()
+  } catch { /* corpo ilegível */ }
+  return formatMetaError(res.status, corpo, fallback)
+}
+
+function subcodigoMeta(corpo: string) {
+  try {
+    return (JSON.parse(corpo) as { error?: { error_subcode?: number } }).error?.error_subcode
+  } catch { return undefined }
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -199,24 +211,83 @@ async function publishFacebook(account: PublishAccount, post: PublishPost) {
 
 // ─── INSTAGRAM ───────────────────────────────────────────────────────────────
 
+/**
+ * O buscador de mídia do Instagram falha de forma intermitente: recusa com
+ * 9004 / subcode 2207052 ("não foi possível obter a mídia deste URI") uma URL
+ * que responde 200 e image/jpeg. Medido duas vezes no mesmo carrossel, em
+ * imagens diferentes, com o smoke test conferindo cada URL segundos antes —
+ * 200 em 645ms, e ainda assim recusada. Não é a URL; é a busca dele.
+ *
+ * Só este subcódigo é repetido. Erro de formato, de permissão ou de parâmetro
+ * continua estourando na primeira tentativa: repetir defeito real só esconde.
+ */
+const SUBCODIGO_BUSCA_TRANSITORIA = 2207052
+
 // Cria um container de mídia e devolve o id. Stories não aceitam legenda.
 async function createInstagramContainer(
   account: PublishAccount,
   params: Record<string, string>,
+  tentativas = 4,
 ) {
-  const body = new URLSearchParams({ access_token: account.accessToken, ...params })
-  const res = await fetch(`${GRAPH}/${account.profileId}/media`, { method: 'POST', body })
-  if (!res.ok) throw new Error(await describeError(res, 'Instagram recusou o container de mídia'))
-  const { id } = await res.json() as { id: string }
-  return id
+  let ultimoErro = 'Instagram recusou o container de mídia'
+  let feitas = 0
+
+  for (let tentativa = 1; tentativa <= tentativas; tentativa++) {
+    feitas = tentativa
+    const body = new URLSearchParams({ access_token: account.accessToken, ...params })
+    const res = await fetch(`${GRAPH}/${account.profileId}/media`, { method: 'POST', body })
+    if (res.ok) {
+      const { id } = await res.json() as { id: string }
+      if (tentativa > 1) console.log(`[instagram] container criado na tentativa ${tentativa}`)
+      return id
+    }
+
+    const corpo = await res.text().catch(() => '')
+    ultimoErro = formatMetaError(res.status, corpo, 'Instagram recusou o container de mídia')
+
+    const transitorio = subcodigoMeta(corpo) === SUBCODIGO_BUSCA_TRANSITORIA
+    if (!transitorio || tentativa === tentativas) break
+
+    const espera = tentativa * 3000
+    console.warn(`[instagram] busca de mídia falhou (tentativa ${tentativa}/${tentativas}), repetindo em ${espera}ms`)
+    await sleep(espera)
+  }
+
+  // o número real de tentativas vai na mensagem: distingue "insistimos quatro
+  // vezes e não passou" de "falhou de cara por erro que não se repete"
+  throw new Error(feitas > 1 ? `${ultimoErro} — após ${feitas} tentativas` : ultimoErro)
 }
 
-async function publishInstagramContainer(account: PublishAccount, creationId: string) {
-  const res = await fetch(`${GRAPH}/${account.profileId}/media_publish`, {
-    method: 'POST',
-    body: new URLSearchParams({ access_token: account.accessToken, creation_id: creationId }),
-  })
-  if (!res.ok) throw new Error(await describeError(res, 'Instagram recusou a publicação'))
+// O container pode responder FINISHED e o media_publish ainda dizer que a mídia
+// não está pronta — a prontidão não é imediata dos dois lados. Esperar mais um
+// pouco resolve; desistir aqui perderia um post que ia funcionar.
+const SUBCODIGO_MIDIA_NAO_PRONTA = 2207027
+
+async function publishInstagramContainer(account: PublishAccount, creationId: string, tentativas = 4) {
+  let ultimoErro = 'Instagram recusou a publicação'
+  let feitas = 0
+  let res: Response
+
+  for (let tentativa = 1; ; tentativa++) {
+    feitas = tentativa
+    res = await fetch(`${GRAPH}/${account.profileId}/media_publish`, {
+      method: 'POST',
+      body: new URLSearchParams({ access_token: account.accessToken, creation_id: creationId }),
+    })
+    if (res.ok) break
+
+    const corpo = await res.text().catch(() => '')
+    ultimoErro = formatMetaError(res.status, corpo, 'Instagram recusou a publicação')
+
+    const vaiFicarPronta = subcodigoMeta(corpo) === SUBCODIGO_MIDIA_NAO_PRONTA
+    if (!vaiFicarPronta || tentativa === tentativas) {
+      throw new Error(feitas > 1 ? `${ultimoErro} — após ${feitas} tentativas` : ultimoErro)
+    }
+
+    const espera = tentativa * 3000
+    console.warn(`[instagram] mídia ainda não pronta (tentativa ${tentativa}/${tentativas}), repetindo em ${espera}ms`)
+    await sleep(espera)
+  }
 
   const { id } = await res.json() as { id: string }
   // o id publicado não é o shortcode da URL — o permalink vem da própria API
