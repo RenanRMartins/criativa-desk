@@ -252,7 +252,7 @@ async function publishInstagram(account: PublishAccount, post: PublishPost) {
         ...urlParam(item),
         is_carousel_item: 'true',
       })
-      if (item.type === 'VIDEO') await waitForInstagramContainer(childId, account.accessToken)
+      await waitForInstagramContainer(childId, account.accessToken)
       children.push(childId)
     }
     const carouselId = await createInstagramContainer(account, {
@@ -271,7 +271,7 @@ async function publishInstagram(account: PublishAccount, post: PublishPost) {
       media_type: 'STORIES',
       ...urlParam(first),
     })
-    if (first.type === 'VIDEO') await waitForInstagramContainer(storyId, account.accessToken)
+    await waitForInstagramContainer(storyId, account.accessToken)
     return publishInstagramContainer(account, storyId)
   }
 
@@ -280,22 +280,32 @@ async function publishInstagram(account: PublishAccount, post: PublishPost) {
     ...(first.type === 'VIDEO' ? { media_type: 'REELS' } : {}),
     ...urlParam(first),
   })
-  // vídeo é processado de forma assíncrona — publicar antes de FINISHED falha
-  if (first.type === 'VIDEO') await waitForInstagramContainer(creationId, account.accessToken)
+  // publicar antes de FINISHED falha — vale para imagem também, não só vídeo
+  await waitForInstagramContainer(creationId, account.accessToken)
 
   return publishInstagramContainer(account, creationId)
 }
 
+/**
+ * Um container só pode ser publicado depois de chegar a FINISHED. Vídeo era o
+ * caso óbvio, mas imagem também passa por processamento: o Stories recusou com
+ * "A mídia não está pronta para ser publicada" (9007/2207027) porque só
+ * esperávamos quando era vídeo. No feed vinha funcionando por sorte — o
+ * container ficava pronto antes de a gente pedir a publicação.
+ *
+ * Consulta antes de dormir, para que imagem já pronta não pague espera nenhuma.
+ */
 async function waitForInstagramContainer(creationId: string, accessToken: string) {
   for (let attempt = 0; attempt < 20; attempt++) {
-    await sleep(3000)
-    const res = await fetch(`${GRAPH}/${creationId}?fields=status_code&access_token=${accessToken}`)
-    if (!res.ok) continue
-    const { status_code } = await res.json() as { status_code?: string }
-    if (status_code === 'FINISHED') return
-    if (status_code === 'ERROR') throw new Error('Instagram falhou ao processar o vídeo')
+    const res = await fetch(`${GRAPH}/${creationId}?fields=status_code,status&access_token=${accessToken}`)
+    if (res.ok) {
+      const { status_code, status } = await res.json() as { status_code?: string; status?: string }
+      if (status_code === 'FINISHED') return
+      if (status_code === 'ERROR') throw new Error(`Instagram falhou ao processar a mídia: ${status ?? 'sem detalhe'}`)
+    }
+    await sleep(attempt === 0 ? 1000 : 3000)
   }
-  throw new Error('Instagram não terminou de processar o vídeo a tempo')
+  throw new Error('Instagram não terminou de processar a mídia a tempo')
 }
 
 // ─── TIKTOK ──────────────────────────────────────────────────────────────────
