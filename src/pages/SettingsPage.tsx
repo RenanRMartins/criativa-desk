@@ -8,6 +8,7 @@ import { useProjectStore } from '@/store/projectStore'
 import { useSocialAccounts } from '@/hooks/useSocialAccounts'
 import { getInitials } from '@/lib/utils'
 import { api } from '@/lib/api'
+import GestaoAcessos from '@/components/settings/GestaoAcessos'
 
 const TABS = [
   { id: 'profile',   label: 'Perfil',         icon: User       },
@@ -323,48 +324,8 @@ export default function SettingsPage() {
           )}
 
           {/* EQUIPE */}
-          {activeTab === 'team' && (
-            <div className="rounded-2xl p-6" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
-              <div className="flex items-center justify-between mb-5">
-                <div>
-                  <h2 className="font-heading font-semibold text-base">Membros da equipe</h2>
-                  <p className="text-xs mt-0.5" style={{ color: 'var(--color-gray-text)' }}>
-                    Projeto: {activeProject?.name ?? 'Nenhum projeto selecionado'}
-                  </p>
-                </div>
-                <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-white cursor-pointer"
-                  style={{ background: 'var(--color-wine)' }}>
-                  <Plus size={14} /> Convidar membro
-                </button>
-              </div>
+          {activeTab === 'team' && <GestaoAcessos />}
 
-              {/* Placeholder da equipe */}
-              <div className="space-y-3">
-                {[
-                  { name: 'Admin CrIAtiva Desk', email: 'admin@criativadesk.com', role: 'Proprietário' },
-                  { name: 'Social Media Demo', email: 'social@criativadesk.com', role: 'Social Media' },
-                ].map(member => (
-                  <div key={member.email} className="flex items-center gap-3 p-3 rounded-xl"
-                    style={{ background: 'var(--color-gray-light)' }}>
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                      style={{ background: 'var(--color-wine)' }}>
-                      {getInitials(member.name)}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{member.name}</p>
-                      <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>{member.email}</p>
-                    </div>
-                    <span className="text-xs px-2.5 py-1 rounded-full"
-                      style={{ background: 'var(--color-wine-subtle)', color: 'var(--color-wine)' }}>
-                      {member.role}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* REDES SOCIAIS */}
           {activeTab === 'networks' && (
             <div className="rounded-2xl p-6" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
               <div className="mb-5">
