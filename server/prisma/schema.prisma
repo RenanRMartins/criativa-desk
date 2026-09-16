@@ -219,6 +219,10 @@ model ProjectMember {
   projectId String
   userId    String
   role      ProjectRole @default(SOCIAL_MEDIA)
+  // ajuste fino sobre o padrão do papel: soma o que está em extras,
+  // tira o que está em negadas. Papel é ponto de partida, não gaiola.
+  extras    String[]    @default([])
+  negadas   String[]    @default([])
   project   Project     @relation(fields: [projectId], references: [id])
   user      User        @relation(fields: [userId], references: [id])
   createdAt DateTime    @default(now())

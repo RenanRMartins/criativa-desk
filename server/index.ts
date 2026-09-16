@@ -17,6 +17,7 @@ import uploadRoutes from './routes/upload.routes'
 import socialRoutes from './routes/social.routes'
 import musicRoutes from './routes/music.routes'
 import canvaRoutes from './routes/canva.routes'
+import acessosRoutes from './routes/acessos.routes'
 import { startPublishWorker } from './workers/publish.worker'
 
 const app = express()
@@ -36,6 +37,7 @@ const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 500 })
 app.use(limiter)
 
 app.use('/api/auth', authRoutes)
+app.use('/api/acessos', acessosRoutes)
 app.use('/api/projects', projectsRoutes)
 app.use('/api/posts', postsRoutes)
 app.use('/api/approvals', approvalsRoutes)
