@@ -1,7 +1,7 @@
 import { Router, type Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
-import { isMockMode, mockOutcomes, publishToAccounts } from '../services/publish.service'
+import { isMockMode, mockOutcomes, publishToAccounts, selectPublishAccounts } from '../services/publish.service'
 
 const router = Router()
 router.use(authMiddleware)
@@ -33,17 +33,18 @@ router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 
   const { accountIds } = (req.body ?? {}) as { accountIds?: string[] }
-  // sem escolha explícita no modal, usa as contas definidas na criação do post
-  const ids = accountIds?.length ? accountIds : post.targetAccountIds
-  const accounts = ids.length
-    ? await prisma.socialAccount.findMany({
-        where: { id: { in: ids }, projectId: post.projectId, status: 'CONNECTED' },
-        select: {
-          id: true, provider: true, profileName: true,
-          accessToken: true, refreshToken: true, profileId: true,
-        },
-      })
-    : []
+  const accounts = await selectPublishAccounts(post, accountIds)
+
+  // marcar como PUBLISHED sem ter enviado a lugar nenhum é a pior saída possível:
+  // o post some da fila e ninguém fica sabendo que nada foi ao ar
+  if (accounts.length === 0) {
+    res.status(422).json({
+      message: post.networks.length
+        ? `Nenhuma conta conectada em ${post.networks.join(', ')} neste projeto.`
+        : 'O post não tem nenhuma rede selecionada.',
+    })
+    return
+  }
 
   const outcomes = isMockMode()
     ? mockOutcomes(accounts)

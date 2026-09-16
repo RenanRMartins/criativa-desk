@@ -35,6 +35,33 @@ export type PublishOutcome = {
   error?: string
 }
 
+/**
+ * Quais contas recebem um post. Regra única: as escolhidas no post; sem escolha,
+ * todas as contas conectadas das redes do post.
+ *
+ * Existia duplicada no worker e na rota de publicação manual, e a cópia da rota
+ * não tinha o fallback — post agendado publicava, post publicado na mão era
+ * marcado como PUBLISHED sem enviar nada a lugar nenhum.
+ */
+export function selectPublishAccounts(post: {
+  projectId: string
+  networks: string[]
+  targetAccountIds: string[]
+}, override?: string[]): Promise<PublishAccount[]> {
+  const ids = override?.length ? override : post.targetAccountIds
+  return prisma.socialAccount.findMany({
+    where: {
+      projectId: post.projectId,
+      status: 'CONNECTED',
+      ...(ids.length ? { id: { in: ids } } : { provider: { in: post.networks as never } }),
+    },
+    select: {
+      id: true, provider: true, profileName: true,
+      accessToken: true, refreshToken: true, profileId: true,
+    },
+  })
+}
+
 export function isMockMode() {
   return process.env.SOCIAL_MOCK_MODE !== 'false'
 }

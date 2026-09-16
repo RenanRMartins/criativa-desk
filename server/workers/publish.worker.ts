@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma'
-import { isMockMode, mockOutcomes, publishToAccounts, type PublishPost } from '../services/publish.service'
+import { isMockMode, mockOutcomes, publishToAccounts, selectPublishAccounts, type PublishPost } from '../services/publish.service'
 
 const TICK_MS = 60_000
 const MAX_ATTEMPTS = 3
@@ -33,20 +33,8 @@ async function publishDuePosts() {
     if (meta.nextAttemptAt && new Date(meta.nextAttemptAt) > now) continue
 
     try {
-      // contas escolhidas na criação do post; sem escolha, todas as conectadas das redes do post
-      const accounts = await prisma.socialAccount.findMany({
-        where: {
-          projectId: post.projectId,
-          status: 'CONNECTED',
-          ...(post.targetAccountIds.length
-            ? { id: { in: post.targetAccountIds } }
-            : { provider: { in: post.networks } }),
-        },
-        select: {
-          id: true, provider: true, profileName: true,
-          accessToken: true, refreshToken: true, profileId: true,
-        },
-      })
+      // mesma regra da publicação manual — uma função só, para não divergirem de novo
+      const accounts = await selectPublishAccounts(post)
 
       const payload: PublishPost = {
         id: post.id,
