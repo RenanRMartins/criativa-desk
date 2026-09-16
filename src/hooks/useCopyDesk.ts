@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import { BASE_URL } from '@/lib/api'
 import type { CopyType } from '@/types'
 
 interface GenerateOptions {
@@ -31,7 +32,7 @@ export function useCopyDesk() {
         }
       })()
 
-      const res = await fetch('/api/copydesk/generate', {
+      const res = await fetch(`${BASE_URL}/copydesk/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -41,7 +42,13 @@ export function useCopyDesk() {
         signal: abortRef.current.signal,
       })
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        // o corpo é o que diz a causa; só o status manda procurar no lugar errado
+        const detalhe = await res.text().catch(() => '')
+        let msg = detalhe.slice(0, 300)
+        try { msg = (JSON.parse(detalhe) as { message?: string }).message ?? msg } catch { /* texto cru */ }
+        throw new Error(msg ? `HTTP ${res.status}: ${msg}` : `HTTP ${res.status}`)
+      }
       if (!res.body) throw new Error('No response body')
 
       const reader = res.body.getReader()

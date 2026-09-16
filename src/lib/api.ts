@@ -1,4 +1,6 @@
-const BASE_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api'
+// exportado porque o CopyDesk usa fetch cru (streaming SSE) e precisa da mesma
+// base — com caminho relativo ele batia na Vercel em produção e voltava 405
+export const BASE_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api'
 
 function getToken(): string | null {
   try {
