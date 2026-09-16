@@ -21,6 +21,9 @@ const SENHA = process.env.SMOKE_PASSWORD ?? 'admin123'
 // sem isto o teste pega lista[0], que pode ser o projeto de um cliente
 const PROJETO = process.env.SMOKE_PROJECT
 const REDES = (process.env.SMOKE_NETWORKS ?? 'INSTAGRAM').split(',').map(s => s.trim()).filter(Boolean)
+// pula o upload e usa esta URL como mídia — serve para separar "nossa imagem é
+// o problema" de "a rede é o problema", trocando uma variável de cada vez
+const IMAGEM_URL = process.env.SMOKE_IMAGE_URL
 
 // PNG 1x1 — evita depender de arquivo no disco
 const PNG_1X1 = Buffer.from(
@@ -108,14 +111,22 @@ async function main() {
   ok('contas conectadas', alvo.map(c => `${c.provider}/${c.profileName}`).join(', '))
 
   // 3. upload — foi aqui que a falta de credencial do Cloudinary passou despercebida
-  const form = new FormData()
-  form.append('file', new Blob([new Uint8Array(PNG_1X1)], { type: 'image/png' }), 'smoke.png')
-  const upload = await req('/api/upload', { method: 'POST', body: form })
-  if (!upload.ok) falhou('upload de mídia', upload.corpo)
-  const arquivo = upload.corpo as { url?: string; publicId?: string }
-  if (!arquivo.url) falhou('upload de mídia', 'resposta sem url')
-  const urlMidia = em1080(arquivo.url)
-  ok('upload de mídia', urlMidia === arquivo.url ? arquivo.url.slice(0, 60) : '1080x1080 via Cloudinary')
+  let urlMidia: string
+  let publicId: string | undefined
+  if (IMAGEM_URL) {
+    urlMidia = IMAGEM_URL
+    ok('upload de mídia', `pulado — usando SMOKE_IMAGE_URL`)
+  } else {
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array(PNG_1X1)], { type: 'image/png' }), 'smoke.png')
+    const upload = await req('/api/upload', { method: 'POST', body: form })
+    if (!upload.ok) falhou('upload de mídia', upload.corpo)
+    const arquivo = upload.corpo as { url?: string; publicId?: string }
+    if (!arquivo.url) falhou('upload de mídia', 'resposta sem url')
+    urlMidia = em1080(arquivo.url)
+    publicId = arquivo.publicId
+    ok('upload de mídia', urlMidia === arquivo.url ? arquivo.url.slice(0, 60) : '1080x1080 via Cloudinary')
+  }
 
   // 4. criação do post COM mídia — a rota ignorava mídia por completo
   const criar = await req('/api/posts', {
@@ -128,7 +139,7 @@ async function main() {
       status: 'APPROVED',
       caption: 'teste automatizado',
       hashtags: ['#smoke'],
-      media: [{ url: urlMidia, publicId: arquivo.publicId, type: 'IMAGE' }],
+      media: [{ url: urlMidia, publicId, type: 'IMAGE' }],
     }),
   })
   if (criar.status !== 201) falhou('criar post', criar.corpo)

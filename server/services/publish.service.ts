@@ -238,6 +238,12 @@ async function publishInstagram(account: PublishAccount, post: PublishPost) {
   const urlParam = (m: { url: string; type: string }): Record<string, string> =>
     m.type === 'VIDEO' ? { video_url: m.url } : { image_url: jpgUrl(m.url) }
 
+  // imagem de usuário é sempre a primeira vez: gerar a derivada antes de
+  // entregar a URL ao Instagram, que não espera pela geração
+  for (const m of media) {
+    if (m.type !== 'VIDEO') await aquecerDerivada(jpgUrl(m.url))
+  }
+
   // Carrossel: um container por item, depois um container CAROUSEL com os filhos
   if (post.format === 'CAROUSEL_INSTAGRAM' && media.length > 1) {
     const children: string[] = []
@@ -302,9 +308,31 @@ const MAX_VIDEO_BYTES = 300 * 1024 * 1024
 // formato. Mesmo caminho do .mov: o Cloudinary converte na entrega.
 function jpgUrl(url: string) {
   if (!url.includes('res.cloudinary.com') || !url.includes('/image/upload/')) return url
+  // já é JPEG: converter geraria uma derivada nova sem necessidade nenhuma
+  if (/\.jpe?g$/i.test(url)) return url
   return url
     .replace('/image/upload/', '/image/upload/f_jpg/')
     .replace(/\.(png|webp|heic|heif|gif|avif|tiff?|bmp)$/i, '.jpg')
+}
+
+/**
+ * O Cloudinary só gera a imagem derivada (conversão, redimensionamento) quando
+ * alguém pede pela primeira vez, e quem pede primeiro espera a geração. Se esse
+ * primeiro for o buscador do Instagram, ele desiste e recusa com "Não foi
+ * possível obter a mídia deste URI" — erro que não diz nada sobre cache.
+ * Então pedimos antes, e ele recebe a imagem já pronta.
+ */
+async function aquecerDerivada(url: string) {
+  if (!url.includes('res.cloudinary.com')) return
+  for (let tentativa = 0; tentativa < 6; tentativa++) {
+    try {
+      const res = await fetch(url)
+      if (res.ok) { await res.arrayBuffer(); return }
+      // 423 = ainda processando; qualquer outro erro é real e o Instagram reporta melhor
+      if (res.status !== 423) return
+    } catch { /* rede instável: tenta de novo */ }
+    await sleep(2000)
+  }
 }
 
 // iPhone grava .mov/HEVC, que o TikTok não aceita. O Cloudinary transcodifica sob
