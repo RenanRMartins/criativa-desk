@@ -125,11 +125,21 @@
 
 ## Animation (Framer Motion)
 
+> **Importe de `src/lib/motionVariants.ts` — não copie estas variantes para os componentes.**
+> A string `ease: "easeOut"` quebra o TypeScript no Framer Motion v12; use sempre a
+> curva `[0, 0, 0.2, 1]`, que é a mesma easing expressa como bezier.
+
+```ts
+import { pageVariants, cardVariants, containerVariants, drawerVariants } from '@/lib/motionVariants'
+```
+
+As variantes centrais, para referência:
+
 ```ts
 // Page transitions
 const pageVariants = {
   initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.25, ease: "easeOut" } },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.25, ease: [0, 0, 0.2, 1] } },
   exit: { opacity: 0, y: -8, transition: { duration: 0.15 } }
 }
 
@@ -139,20 +149,20 @@ const containerVariants = {
 }
 const cardVariants = {
   initial: { opacity: 0, y: 16 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.2, ease: "easeOut" } }
+  animate: { opacity: 1, y: 0, transition: { duration: 0.2, ease: [0, 0, 0.2, 1] } }
 }
 
 // Drawer slide
 const drawerVariants = {
   initial: { x: "100%" },
-  animate: { x: 0, transition: { duration: 0.25, ease: "easeOut" } },
+  animate: { x: 0, transition: { duration: 0.25, ease: [0, 0, 0.2, 1] } },
   exit: { x: "100%", transition: { duration: 0.2 } }
 }
 
 // Card hover
 const cardHover = {
   whileHover: { scale: 1.01, boxShadow: "0 4px 16px rgba(107,45,62,0.15)" },
-  transition: { duration: 0.15, ease: "easeOut" }
+  transition: { duration: 0.15, ease: [0, 0, 0.2, 1] }
 }
 ```
 
