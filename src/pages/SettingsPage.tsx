@@ -270,8 +270,11 @@ export default function SettingsPage() {
             <div className="rounded-2xl p-6" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
               <div className="mb-5">
                 <h2 className="font-heading font-semibold text-base">Contas conectadas</h2>
+                {/* a conexão é gravada no projeto ativo, e não dizer qual já fez
+                    conectar no projeto errado sem ninguém perceber */}
                 <p className="text-xs mt-0.5" style={{ color: 'var(--color-gray-text)' }}>
-                  Conecte suas redes sociais para agendar publicações automaticamente.
+                  Conecte suas redes sociais para agendar publicações automaticamente. As contas ficam no projeto{' '}
+                  <strong style={{ color: 'var(--color-wine)' }}>{activeProject?.name ?? '—'}</strong>; para outro projeto, troque no seletor acima.
                 </p>
               </div>
 
