@@ -15,6 +15,8 @@
  * SMOKE_NETWORKS redes separadas por vírgula (padrão: INSTAGRAM)
  */
 
+import zlib from 'node:zlib'
+
 const BASE = process.env.SMOKE_BASE_URL ?? 'http://localhost:4000'
 const EMAIL = process.env.SMOKE_EMAIL ?? 'admin@criativadesk.com'
 const SENHA = process.env.SMOKE_PASSWORD ?? 'admin123'
@@ -25,19 +27,39 @@ const REDES = (process.env.SMOKE_NETWORKS ?? 'INSTAGRAM').split(',').map(s => s.
 // o problema" de "a rede é o problema", trocando uma variável de cada vez
 const IMAGEM_URL = process.env.SMOKE_IMAGE_URL
 
-// PNG 1x1 — evita depender de arquivo no disco
-const PNG_1X1 = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64',
-)
+/**
+ * PNG de cor sólida no tamanho pedido, gerado aqui mesmo.
+ *
+ * Antes o teste subia um PNG de 1x1 e mandava o Cloudinary esticar na entrega,
+ * porque o Instagram recusa imagem abaixo de 320px. Só que URL de transformação
+ * é justamente o que o Instagram não busca — o teste passou a medir a
+ * transformação em vez do fluxo. Gerar a imagem já no tamanho certo tira essa
+ * variável, e sem carregar um blob base64 no meio do arquivo.
+ */
+function pngSolido(lado: number, [r, g, b]: [number, number, number]) {
+  const pixels = Buffer.alloc(lado * 3)
+  for (let i = 0; i < lado; i++) pixels.set([r, g, b], i * 3)
+  const linha = Buffer.concat([Buffer.from([0]), pixels])   // byte de filtro por linha
+  const raw = Buffer.concat(Array.from({ length: lado }, () => linha))
 
-// O Instagram recusa imagem abaixo de 320px, então o 1x1 faria o teste falhar
-// por tamanho e não por defeito nosso. O Cloudinary já está no caminho: pedimos
-// a mesma imagem esticada para 1080x1080 na entrega.
-function em1080(url: string) {
-  if (!url.includes('res.cloudinary.com') || !url.includes('/image/upload/')) return url
-  return url.replace('/image/upload/', '/image/upload/w_1080,h_1080,c_pad,b_rgb:6B2D3E/')
+  const pedaco = (tipo: string, dados: Buffer) => {
+    const t = Buffer.from(tipo, 'ascii')
+    const cab = Buffer.alloc(4); cab.writeUInt32BE(dados.length)
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(Buffer.concat([t, dados])) >>> 0)
+    return Buffer.concat([cab, t, dados, crc])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(lado, 0); ihdr.writeUInt32BE(lado, 4)
+  ihdr[8] = 8; ihdr[9] = 2                                  // 8 bits por canal, RGB
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pedaco('IHDR', ihdr),
+    pedaco('IDAT', zlib.deflateSync(raw, { level: 9 })),
+    pedaco('IEND', Buffer.alloc(0)),
+  ])
 }
+
+const IMAGEM = pngSolido(1080, [0x6B, 0x2D, 0x3E])   // vinho da marca
 
 let token = ''
 let falhas = 0
@@ -118,14 +140,18 @@ async function main() {
     ok('upload de mídia', `pulado — usando SMOKE_IMAGE_URL`)
   } else {
     const form = new FormData()
-    form.append('file', new Blob([new Uint8Array(PNG_1X1)], { type: 'image/png' }), 'smoke.png')
+    form.append('file', new Blob([new Uint8Array(IMAGEM)], { type: 'image/png' }), 'smoke.png')
     const upload = await req('/api/upload', { method: 'POST', body: form })
     if (!upload.ok) falhou('upload de mídia', upload.corpo)
-    const arquivo = upload.corpo as { url?: string; publicId?: string }
+    const arquivo = upload.corpo as { url?: string; format?: string; width?: number; height?: number }
     if (!arquivo.url) falhou('upload de mídia', 'resposta sem url')
-    urlMidia = em1080(arquivo.url)
-    publicId = arquivo.publicId
-    ok('upload de mídia', urlMidia === arquivo.url ? arquivo.url.slice(0, 60) : '1080x1080 via Cloudinary')
+    // o upload converte para JPEG; se voltar png o Instagram vai recusar adiante
+    if (arquivo.format !== 'jpg') {
+      falhou('upload de mídia', `esperava format=jpg (Instagram só aceita JPEG), veio "${arquivo.format}"`)
+    }
+    urlMidia = arquivo.url
+    publicId = (upload.corpo as { publicId?: string }).publicId
+    ok('upload de mídia', `${arquivo.width}x${arquivo.height} ${arquivo.format} — ${urlMidia.slice(-42)}`)
   }
 
   // 4. criação do post COM mídia — a rota ignorava mídia por completo
