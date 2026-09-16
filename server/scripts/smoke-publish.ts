@@ -166,7 +166,17 @@ async function main() {
         falhou('upload de mídia', `esperava format=jpg (Instagram só aceita JPEG), veio "${arquivo.format}"`)
       }
       midiasEnviadas.push({ url: arquivo.url, publicId: arquivo.publicId, type: 'IMAGE', order: i })
-      if (i === 0) ok('upload de mídia', `${arquivo.width}x${arquivo.height} ${arquivo.format}${QUANTIDADE > 1 ? ` · ${QUANTIDADE} imagens` : ''}`)
+      ok(`upload ${i + 1}/${QUANTIDADE}`, `${arquivo.width}x${arquivo.height} ${arquivo.format} — ${arquivo.url.split('/').pop()}`)
+    }
+
+    // A rede social vai buscar estas URLs. Se alguma não estiver servindo agora,
+    // a recusa dela adiante não diz nada sobre o nosso código.
+    for (const [i, m] of midiasEnviadas.entries()) {
+      const t0 = Date.now()
+      const r = await fetch(m.url)
+      const ms = Date.now() - t0
+      if (!r.ok) falhou('mídia acessível', `imagem ${i + 1} devolveu HTTP ${r.status} em ${m.url}`)
+      ok(`mídia ${i + 1} acessível`, `HTTP ${r.status} ${r.headers.get('content-type')} em ${ms}ms`)
     }
   }
 
@@ -202,7 +212,7 @@ async function main() {
   if (!midias.some(m => m.url === urlMidia)) {
     falhou('mídia persistida', `url divergente: ${midias.map(m => m.url).join(', ')}`)
   }
-  ok('mídia persistida', '1 PostMedia')
+  ok('mídia persistida', `${midias.length} PostMedia`)
 
   // 6. publicação
   const publicar = await req(`/api/scheduling/${post.id}/publish`, {
