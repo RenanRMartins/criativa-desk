@@ -28,6 +28,14 @@ const NETWORK_LIST = (
 }))
 
 // O motivo vem do callback OAuth; sem ele toda falha vira "tente novamente"
+type TesteConta = {
+  ok: boolean
+  erro?: string
+  escopos?: string[]
+  faltando?: string[]
+  expiraEm?: string
+}
+
 const OAUTH_ERRORS: Record<string, string> = {
   cancelled: 'Você cancelou a autorização, ou ela expirou. Tente conectar de novo.',
   sem_paginas: 'Autorização concluída, mas nenhuma Página foi encontrada. Se a Página pertence a um portfólio empresarial, a configuração do app na Meta precisa incluir a permissão business_management.',
@@ -59,6 +67,8 @@ export default function SettingsPage() {
   const { accounts: connectedAccounts, setAccounts: setConnectedAccounts } = useSocialAccounts(activeProject?.id)
   const [connectingNetwork, setConnectingNetwork] = useState<string | null>(null)
   const [oauthMessage, setOauthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [testando, setTestando] = useState<string | null>(null)
+  const [testes, setTestes] = useState<Record<string, TesteConta | null>>({})
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -105,6 +115,24 @@ export default function SettingsPage() {
   async function disconnectNetwork(accountId: string) {
     await api.delete(`/social/accounts/${accountId}`)
     setConnectedAccounts(prev => prev.filter(a => a.id !== accountId))
+  }
+
+  // "Conectado" não quer dizer "publica": o token pode estar sem os escopos.
+  // Este teste interroga o token de verdade, sem publicar nada.
+  async function testarConta(accountId: string) {
+    setTestando(accountId)
+    setTestes(prev => ({ ...prev, [accountId]: null }))
+    try {
+      const r = await api.post<TesteConta>(`/social/accounts/${accountId}/test`, {})
+      setTestes(prev => ({ ...prev, [accountId]: r }))
+    } catch (e) {
+      setTestes(prev => ({
+        ...prev,
+        [accountId]: { ok: false, erro: e instanceof Error ? e.message : 'Falha ao testar' },
+      }))
+    } finally {
+      setTestando(null)
+    }
   }
 
   function saveProfile() {
@@ -295,26 +323,57 @@ export default function SettingsPage() {
 
                       {accounts.length > 0 && (
                         <div className="space-y-2 ml-[52px]">
-                          {accounts.map(account => (
-                            <div key={account.id} className="flex items-center gap-2.5 p-2.5 rounded-lg"
+                          {accounts.map(account => {
+                            const teste = testes[account.id]
+                            return (
+                            <div key={account.id} className="p-2.5 rounded-lg"
                               style={{ background: 'var(--color-gray-light)' }}>
-                              {account.profileAvatar ? (
-                                <img src={account.profileAvatar} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
-                              ) : (
-                                <div className="w-7 h-7 rounded-full flex items-center justify-center text-white flex-shrink-0"
-                                  style={{ background: net.color }}>
-                                  <net.Icon size={13} />
+                              <div className="flex items-center gap-2.5">
+                                {account.profileAvatar ? (
+                                  <img src={account.profileAvatar} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                                ) : (
+                                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-white flex-shrink-0"
+                                    style={{ background: net.color }}>
+                                    <net.Icon size={13} />
+                                  </div>
+                                )}
+                                <p className="text-xs font-medium flex-1 truncate">{account.profileName}</p>
+                                <button
+                                  onClick={() => testarConta(account.id)}
+                                  disabled={testando === account.id}
+                                  className="px-2.5 py-1 rounded-lg text-xs cursor-pointer border transition-colors hover:bg-wine-subtle flex-shrink-0 disabled:opacity-50"
+                                  style={{ borderColor: 'var(--color-gray-border)', color: 'var(--color-gray-text)' }}>
+                                  {testando === account.id ? 'Testando…' : 'Testar'}
+                                </button>
+                                <button
+                                  onClick={() => disconnectNetwork(account.id)}
+                                  className="px-2.5 py-1 rounded-lg text-xs cursor-pointer border transition-colors hover:bg-red-50 flex-shrink-0"
+                                  style={{ borderColor: '#EF4444', color: '#EF4444' }}>
+                                  Desconectar
+                                </button>
+                              </div>
+
+                              {teste && (
+                                <div className="mt-2 pt-2 text-xs border-t" style={{ borderColor: 'var(--color-gray-border)' }}>
+                                  <p style={{ color: teste.ok ? '#059669' : '#EF4444' }}>
+                                    {teste.ok ? '✓ Pronta para publicar' : `✗ ${teste.erro}`}
+                                  </p>
+                                  {/* o escopo é o que separa "conectado" de "publica de verdade" */}
+                                  {teste.escopos?.length ? (
+                                    <p className="mt-1 break-words" style={{ color: 'var(--color-gray-text)' }}>
+                                      Permissões do token: {teste.escopos.join(', ')}
+                                    </p>
+                                  ) : null}
+                                  {teste.expiraEm && (
+                                    <p className="mt-0.5" style={{ color: 'var(--color-gray-text)' }}>
+                                      Expira: {teste.expiraEm === 'não expira' ? 'não expira' : new Date(teste.expiraEm).toLocaleString('pt-BR')}
+                                    </p>
+                                  )}
                                 </div>
                               )}
-                              <p className="text-xs font-medium flex-1 truncate">{account.profileName}</p>
-                              <button
-                                onClick={() => disconnectNetwork(account.id)}
-                                className="px-2.5 py-1 rounded-lg text-xs cursor-pointer border transition-colors hover:bg-red-50 flex-shrink-0"
-                                style={{ borderColor: '#EF4444', color: '#EF4444' }}>
-                                Desconectar
-                              </button>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       )}
                     </div>

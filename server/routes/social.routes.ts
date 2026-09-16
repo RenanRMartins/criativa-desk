@@ -464,6 +464,65 @@ router.get('/accounts', authMiddleware, async (req: AuthRequest, res: Response) 
   res.json(accounts)
 })
 
+// Escopos sem os quais a conta aparece CONNECTED mas não publica.
+// Foi assim que o Spotify enganou a gente: status conectado, token sem os escopos novos.
+const ESCOPOS_EXIGIDOS: Record<string, string[]> = {
+  FACEBOOK: ['pages_show_list', 'pages_manage_posts'],
+  INSTAGRAM: ['instagram_basic', 'instagram_content_publish'],
+}
+
+// POST /api/social/accounts/:id/test
+// Conectar não prova escopo. Aqui o token guardado é interrogado de verdade:
+// quais permissões ele carrega e se a conta ainda responde. Nada é publicado.
+router.post('/accounts/:id/test', authMiddleware, async (req: AuthRequest, res: Response) => {
+  const conta = await prisma.socialAccount.findUnique({ where: { id: req.params.id as string } })
+  if (!conta) { res.status(404).json({ message: 'Conta não encontrada' }); return }
+
+  const base = { provider: conta.provider, profileName: conta.profileName }
+
+  if (conta.provider !== 'FACEBOOK' && conta.provider !== 'INSTAGRAM') {
+    res.json({ ...base, ok: false, erro: `Teste ainda não implementado para ${conta.provider}` })
+    return
+  }
+
+  const appId = process.env['META_ID']
+  const appSecret = process.env['META_SEC']
+  if (!appId || !appSecret) {
+    res.json({ ...base, ok: false, erro: 'META_ID/META_SEC ausentes no servidor' }); return
+  }
+
+  // 1. quais escopos o token REALMENTE tem — não o que a tela de consentimento mostrou
+  const dbg = await graphGet(`debug_token?input_token=${encodeURIComponent(conta.accessToken)}`, `${appId}|${appSecret}`)
+  const info = (dbg.json as { data?: { scopes?: string[]; is_valid?: boolean; expires_at?: number } } | null)?.data
+  if (!dbg.ok || !info) {
+    res.json({ ...base, ok: false, erro: `debug_token falhou (HTTP ${dbg.status}): ${dbg.text.slice(0, 300)}` }); return
+  }
+
+  const escopos = info.scopes ?? []
+  const faltando = (ESCOPOS_EXIGIDOS[conta.provider] ?? []).filter(e => !escopos.includes(e))
+
+  // 2. a conta ainda responde? (leitura pura, sem efeito nenhum)
+  const alvo = conta.provider === 'INSTAGRAM'
+    ? `${conta.profileId}?fields=id,username,media_count`
+    : `${conta.profileId}?fields=id,name,fan_count`
+  const leitura = await graphGet(alvo, conta.accessToken)
+
+  const problemas: string[] = []
+  if (!info.is_valid) problemas.push('token inválido segundo a própria Meta')
+  if (faltando.length) problemas.push(`escopos ausentes: ${faltando.join(', ')}`)
+  if (!leitura.ok) problemas.push(`conta não respondeu (HTTP ${leitura.status}): ${leitura.text.slice(0, 200)}`)
+
+  res.json({
+    ...base,
+    ok: problemas.length === 0,
+    escopos,
+    faltando,
+    expiraEm: info.expires_at ? new Date(info.expires_at * 1000).toISOString() : 'não expira',
+    leitura: leitura.ok ? leitura.text.slice(0, 200) : null,
+    ...(problemas.length ? { erro: problemas.join(' | ') } : {}),
+  })
+})
+
 // DELETE /api/social/accounts/:id
 router.delete('/accounts/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   await prisma.socialAccount.delete({ where: { id: req.params.id as string } })
