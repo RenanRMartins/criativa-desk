@@ -203,10 +203,14 @@ router.get('/linkedin/callback', async (req: Request, res: Response) => {
 // ─── META (Facebook + Instagram) ─────────────────────────────────────────────
 
 const META_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-production.up.railway.app'}/api/social/meta/callback`
-// Publicar exige App Review aprovado na Meta; sem isso o consentimento volta só com public_profile
+// Publicar exige App Review aprovado na Meta; sem isso o consentimento volta só com public_profile.
+// business_management é obrigatório quando a Página pertence a um portfólio empresarial: sem ele
+// /me/accounts volta VAZIO mesmo com pages_show_list concedida (confirmado no Graph API Explorer —
+// com a permissão as Páginas aparecem, sem ela não). Vale para o config_id também: a permissão
+// precisa estar na configuração do Login para Empresas, senão o scope daqui nem é enviado.
 const META_SCOPES: Record<string, string> = {
-  FACEBOOK: 'public_profile,pages_show_list,pages_manage_posts,pages_read_engagement',
-  INSTAGRAM: 'public_profile,pages_show_list,instagram_basic,instagram_content_publish,pages_read_engagement',
+  FACEBOOK: 'public_profile,business_management,pages_show_list,pages_manage_posts,pages_read_engagement',
+  INSTAGRAM: 'public_profile,business_management,pages_show_list,instagram_basic,instagram_content_publish,pages_read_engagement',
 }
 
 // IDs das configurações do Login para Empresas (painel da Meta → Configurations).
