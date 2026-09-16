@@ -1,7 +1,8 @@
 import { Router, type Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
-import { isMockMode, mockOutcomes, publishToAccounts, selectPublishAccounts } from '../services/publish.service'
+import { selectPublishAccounts } from '../services/publish.service'
+import { publishDuePosts } from '../workers/publish.worker'
 
 const router = Router()
 router.use(authMiddleware)
@@ -46,81 +47,43 @@ router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
     return
   }
 
-  // Publicar dentro da requisição HTTP tem um risco que já se materializou: o
-  // proxy do Railway devolveu "upstream error" e REPETIU o pedido, rodando a
-  // publicação duas vezes. Se a primeira tivesse dado certo antes de estourar,
-  // o cliente teria dois posts iguais na conta. Uma publicação por post.
-  // A trava vem depois das validações, para uma recusa rápida não prendê-la.
-  const EM_ANDAMENTO_MS = 10 * 60 * 1000
-  const marca = (post.publishResults ?? {}) as { publicandoDesde?: string }
-  const desde = marca.publicandoDesde ? new Date(marca.publicandoDesde).getTime() : 0
-  if (Date.now() - desde < EM_ANDAMENTO_MS) {
-    res.status(409).json({ message: 'Este post já está sendo publicado. Aguarde o resultado.' })
-    return
-  }
-  await prisma.post.update({
-    where: { id: post.id },
-    data: { publishResults: { publicandoDesde: new Date().toISOString() } },
+  // Publicar dentro da requisição HTTP é frágil por natureza: o envio pode levar
+  // minutos (vídeo do TikTok em blocos, retry do carrossel) e o proxy do Railway
+  // já devolveu "upstream error" E REPETIU o pedido, rodando a publicação duas
+  // vezes — se a primeira tivesse dado certo, seriam dois posts iguais na conta
+  // do cliente. Então a rota só enfileira: quem publica é o worker, que já tem
+  // claim atômico, backoff e notificação.
+  // Recusa só quem já está na fila para agora. Post agendado para mais tarde
+  // pode ser antecipado — é justamente o que o botão "publicar agora" faz.
+  const claim = await prisma.post.updateMany({
+    where: {
+      id: post.id,
+      OR: [
+        { status: { not: 'SCHEDULED' } },
+        { status: 'SCHEDULED', scheduledAt: { gt: new Date() } },
+      ],
+    },
+    data: {
+      status: 'SCHEDULED',
+      scheduledAt: new Date(),
+      ...(accountIds?.length ? { targetAccountIds: accountIds } : {}),
+      publishResults: {},          // zera tentativas de uma falha anterior
+    },
   })
-
-  const outcomes = isMockMode()
-    ? mockOutcomes(accounts)
-    : await publishToAccounts(
-        {
-          id: post.id,
-          title: post.title,
-          format: post.format,
-          caption: post.caption,
-          hashtags: post.hashtags,
-          link: post.link,
-          media: post.media.map(m => ({ url: m.url, type: m.type, order: m.order })),
-        },
-        accounts,
-      )
-
-  const published = outcomes.filter(o => o.ok)
-  const failed = outcomes.filter(o => !o.ok)
-
-  // nenhuma rede aceitou: mantém o post publicável em vez de marcar como publicado
-  if (outcomes.length > 0 && published.length === 0) {
-    await prisma.post.update({
-      where: { id: post.id },
-      data: { status: 'FAILED', publishResults: { mock: isMockMode(), outcomes } },
-    })
-    res.status(502).json({
-      message: 'Nenhuma rede aceitou a publicação',
-      outcomes,
-    })
+  if (claim.count === 0) {
+    res.status(409).json({ message: 'Este post já está na fila de publicação.' })
     return
   }
 
-  const updated = await prisma.post.update({
-    where: { id: req.params.postId as string },
-    data: {
-      status: 'PUBLISHED',
-      publishedAt: new Date(),
-      publishResults: { mock: isMockMode(), outcomes },
-    },
-  })
+  // acorda o worker em vez de esperar o tick de 60s; ele é reentrante
+  void publishDuePosts().catch(err => console.error('[scheduling] worker:', err))
 
-  await prisma.notification.create({
-    data: {
-      userId: req.userId!,
-      type: 'scheduled',
-      title: 'Post publicado!',
-      message: [
-        published.length
-          ? `"${post.title}" foi publicado em ${published.map(o => o.profileName).join(', ')}.`
-          : `"${post.title}" foi publicado com sucesso.`,
-        failed.length ? `Falhou em: ${failed.map(o => o.profileName).join(', ')}.` : '',
-      ].filter(Boolean).join(' '),
-    },
+  res.status(202).json({
+    status: 'SCHEDULED',
+    message: 'Publicação iniciada. O resultado aparece em instantes.',
   })
-
-  res.json(updated)
 })
 
-// Cancelar agendamento
 router.delete('/:postId', async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
     where: {

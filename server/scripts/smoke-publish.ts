@@ -218,17 +218,42 @@ async function main() {
   }
   ok('mídia persistida', `${midias.length} PostMedia`)
 
-  // 6. publicação
+  // 6. publicação — a rota enfileira e devolve 202; quem publica é o worker
   const publicar = await req(`/api/scheduling/${post.id}/publish`, {
     method: 'POST',
     body: JSON.stringify({}),
   })
-  if (!publicar.ok) falhou('publicar', publicar.corpo)
-  const publicado = publicar.corpo as {
+  if (publicar.status !== 202) falhou('enfileirar publicação', publicar.corpo)
+  ok('publicação enfileirada')
+
+  // acompanha até o post sair de SCHEDULED; o worker tem backoff de minutos,
+  // então aqui esperamos só a primeira rodada
+  type PostFinal = {
     status?: string
-    publishResults?: { mock?: boolean; outcomes?: { ok: boolean; provider: string; error?: string; externalId?: string }[] }
+    publishResults?: {
+      mock?: boolean
+      lastError?: string
+      outcomes?: { ok: boolean; provider: string; error?: string; externalId?: string }[]
+    }
   }
-  if (publicado.status !== 'PUBLISHED') falhou('publicar', `status ficou ${publicado.status}`)
+  let publicado: PostFinal = {}
+  const limite = Date.now() + 120_000
+  while (Date.now() < limite) {
+    await new Promise(r => setTimeout(r, 3000))
+    const atual = await req(`/api/posts/${post.id}`)
+    if (!atual.ok) continue
+    publicado = atual.corpo as PostFinal
+    if (publicado.status && publicado.status !== 'SCHEDULED') break
+    process.stdout.write('.')
+  }
+  process.stdout.write('\n')
+
+  if (publicado.status === 'FAILED') {
+    const o = publicado.publishResults?.outcomes?.filter(x => !x.ok) ?? []
+    falhou('publicar', o.length ? o.map(x => `${x.provider}: ${x.error}`).join(' | ')
+                                : publicado.publishResults?.lastError ?? 'sem motivo registrado')
+  }
+  if (publicado.status !== 'PUBLISHED') falhou('publicar', `status ficou ${publicado.status} após 2 minutos`)
 
   const resultados = publicado.publishResults
   if (!resultados) falhou('publicar', 'post publicado sem publishResults')

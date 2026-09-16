@@ -46,6 +46,32 @@ export default function SchedulingPage() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
+  type PostPublicado = {
+    status?: string
+    publishedAt?: string
+    publishResults?: { outcomes?: { ok: boolean; provider: string; error?: string }[]; lastError?: string }
+  }
+
+  // o worker publica em segundo plano; acompanhamos até o post sair de SCHEDULED
+  async function aguardarResultado(postId: string, ateMs = 90_000) {
+    const limite = Date.now() + ateMs
+    while (Date.now() < limite) {
+      await new Promise(r => setTimeout(r, 3000))
+      try {
+        const p = await api.get<PostPublicado>(`/posts/${postId}`)
+        if (p.status && p.status !== 'SCHEDULED') return p
+      } catch { /* instabilidade momentânea não deve abortar o acompanhamento */ }
+    }
+    return null
+  }
+
+  // o motivo real vem dos outcomes; sem isso sobraria "falha ao publicar"
+  function motivoDaFalha(p: PostPublicado) {
+    const ruins = p.publishResults?.outcomes?.filter(o => !o.ok) ?? []
+    if (ruins.length) return ruins.map(o => `${o.provider}: ${o.error}`).join(' | ')
+    return p.publishResults?.lastError ?? 'motivo não informado'
+  }
+
   async function publishNow(postId: string, title: string, accountIds: string[]) {
     setPublishing(postId)
     setSelectTarget(null)
@@ -53,14 +79,31 @@ export default function SchedulingPage() {
       if (isDemo(token)) {
         await new Promise(r => setTimeout(r, 1000))
         await updatePost(postId, { status: 'PUBLISHED', publishedAt: new Date().toISOString() })
-      } else {
-        await api.post(`/scheduling/${postId}/publish`, { accountIds })
-        await updatePost(postId, { status: 'PUBLISHED' })
+        setToast(`"${title}" publicado com sucesso!`)
+        return
       }
-      setToast(`"${title}" publicado com sucesso!`)
-      setTimeout(() => setToast(null), 3000)
+
+      // a publicação agora roda em segundo plano; dar "publicado" aqui seria
+      // mentir — o post pode ainda falhar na rede
+      await api.post(`/scheduling/${postId}/publish`, { accountIds })
+      await updatePost(postId, { status: 'SCHEDULED' })
+      setToast(`Publicando "${title}"…`)
+
+      const final = await aguardarResultado(postId)
+      if (final?.status === 'PUBLISHED') {
+        await updatePost(postId, { status: 'PUBLISHED', publishedAt: final.publishedAt })
+        setToast(`"${title}" publicado com sucesso!`)
+      } else if (final?.status === 'FAILED') {
+        await updatePost(postId, { status: 'FAILED' })
+        setToast(`Falha ao publicar "${title}": ${motivoDaFalha(final)}`)
+      } else {
+        setToast(`"${title}" ainda está publicando. Acompanhe por Agendamentos.`)
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : 'Falha ao publicar')
     } finally {
       setPublishing(null)
+      setTimeout(() => setToast(null), 6000)
     }
   }
 

@@ -21,7 +21,23 @@ async function notifyMembers(projectId: string, title: string, message: string) 
   })
 }
 
-async function publishDuePosts() {
+// A rota de publicar agora chama esta função direto, além do tick de 60s.
+// Sem a trava, os dois poderiam pegar o mesmo post ao mesmo tempo — o claim
+// atômico lá embaixo evitaria a publicação dupla, mas só depois de já ter
+// enviado para a rede, que é tarde demais.
+let rodando = false
+
+export async function publishDuePosts() {
+  if (rodando) return
+  rodando = true
+  try {
+    await processarPendentes()
+  } finally {
+    rodando = false
+  }
+}
+
+async function processarPendentes() {
   const now = new Date()
   const due = await prisma.post.findMany({
     where: { status: 'SCHEDULED', scheduledAt: { lte: now } },
