@@ -318,12 +318,16 @@ async function publishInstagram(account: PublishAccount, post: PublishPost) {
   // Carrossel: um container por item, depois um container CAROUSEL com os filhos
   if (post.format === 'CAROUSEL_INSTAGRAM' && media.length > 1) {
     const children: string[] = []
-    for (const item of media) {
+    for (const [indice, item] of media.entries()) {
+      // sem isto, o erro diz só a URL e não dá para saber se falha sempre na
+      // mesma posição do carrossel ou na mesma imagem
+      console.log(`[instagram] carrossel: criando filho ${indice + 1}/${media.length} — ${item.url.split('/').pop()}`)
       const childId = await createInstagramContainer(account, {
         ...urlParam(item),
         is_carousel_item: 'true',
       })
       await waitForInstagramContainer(childId, account.accessToken)
+      console.log(`[instagram] carrossel: filho ${indice + 1}/${media.length} pronto (${childId})`)
       children.push(childId)
     }
     const carouselId = await createInstagramContainer(account, {

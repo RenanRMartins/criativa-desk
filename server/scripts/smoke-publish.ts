@@ -70,11 +70,15 @@ const [LARGURA, ALTURA] = RETRATO ? [1080, 1920] : [1080, 1080]
 // carrossel com uma imagem só cai no ramo do feed — precisa de mais de uma
 // para de fato exercitar o caminho do carrossel
 const QUANTIDADE = FORMATO.startsWith('CAROUSEL') ? 3 : 1
-const CORES: [number, number, number][] = [
-  [0x6B, 0x2D, 0x3E],   // vinho
-  [0xC9, 0xA9, 0x6E],   // dourado
-  [0x0F, 0x0F, 0x0F],   // preto
-]
+// SMOKE_UMA_COR gera as três iguais: se o carrossel continuar falhando na
+// mesma posição com imagens idênticas, a causa é a posição, não a imagem
+const CORES: [number, number, number][] = process.env.SMOKE_UMA_COR
+  ? [[0x6B, 0x2D, 0x3E]]
+  : [
+      [0x6B, 0x2D, 0x3E],   // vinho
+      [0xC9, 0xA9, 0x6E],   // dourado
+      [0x0F, 0x0F, 0x0F],   // preto
+    ]
 
 let token = ''
 let falhas = 0
