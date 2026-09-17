@@ -95,8 +95,17 @@ function numero(n?: number) {
   return n >= 1000 ? `${(n / 1000).toFixed(1).replace('.0', '')}k` : String(n)
 }
 
-function CartaoMetrica({ icone: Icone, rotulo, valor, nota, corNota }: {
-  icone: React.ElementType; rotulo: string; valor: string; nota?: string; corNota?: string
+type LinhaRede = { provider: string; valor: string; variacao?: string; corVariacao?: string; nota?: string }
+
+/**
+ * Total em cima, composição por rede embaixo.
+ *
+ * O total sozinho esconde de onde veio: 21,9k parece ótimo até se ver que
+ * 20,5k são de uma rede só. Quem apresenta resultado precisa das duas coisas.
+ */
+function CartaoMetrica({ icone: Icone, rotulo, valor, nota, corNota, porRede }: {
+  icone: React.ElementType; rotulo: string; valor: string
+  nota?: string; corNota?: string; porRede?: LinhaRede[]
 }) {
   return (
     <motion.div variants={cardVariants} className="rounded-2xl p-5"
@@ -107,6 +116,25 @@ function CartaoMetrica({ icone: Icone, rotulo, valor, nota, corNota }: {
       </div>
       <p className="font-heading font-bold text-2xl">{valor}</p>
       {nota && <p className="text-xs mt-1" style={{ color: corNota ?? 'var(--color-gray-text)' }}>{nota}</p>}
+
+      {porRede && porRede.length > 0 && (
+        <div className="mt-3 pt-3 space-y-1.5 border-t" style={{ borderColor: 'var(--color-gray-border)' }}>
+          {porRede.map(l => (
+            <div key={l.provider} className="flex items-center gap-1.5 text-xs">
+              <span className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: NETWORK_COLORS[l.provider as SocialNetwork] ?? '#999' }} />
+              <span className="truncate" style={{ color: 'var(--color-gray-text)' }}>
+                {NETWORK_LABELS[l.provider as SocialNetwork] ?? l.provider}
+              </span>
+              <span className="ml-auto tabular-nums font-medium flex-shrink-0">{l.valor}</span>
+              {l.variacao && (
+                <span className="tabular-nums flex-shrink-0" style={{ color: l.corVariacao }}>{l.variacao}</span>
+              )}
+              {l.nota && <span className="flex-shrink-0" style={{ color: 'var(--color-gray-text)' }}>{l.nota}</span>}
+            </div>
+          ))}
+        </div>
+      )}
     </motion.div>
   )
 }
@@ -154,6 +182,30 @@ export default function ReportsPage() {
       return acc
     }, {} as Record<string, { data: string; seguidores: number; visualizacoes: number }>)
   )
+
+  const okContas = dados?.contas.filter(c => c.ok) ?? []
+
+  const seguidoresPorRede: LinhaRede[] = okContas
+    .filter(c => c.seguidores !== undefined)
+    .sort((a, b) => (b.seguidores ?? 0) - (a.seguidores ?? 0))
+    .map(c => ({
+      provider: c.provider,
+      valor: numero(c.seguidores),
+      variacao: variacao(c.crescimento?.seguidores) ?? undefined,
+      corVariacao: corDaVariacao(c.crescimento?.seguidores),
+      // sem base, dizer isso é melhor que deixar o espaço vazio e parecer 0
+      nota: c.crescimento?.seguidores === null ? '(sem base ainda)' : undefined,
+    }))
+
+  // visualizações NO PERÍODO: só o YouTube entrega isso hoje. As outras redes
+  // não expõem views de perfil, e somar "total de sempre" com "no período"
+  // daria um número sem significado.
+  const comViews = okContas.filter(c => c.crescimento?.visualizacoes != null)
+  const viewsPorRede: LinhaRede[] = comViews.map(c => ({
+    provider: c.provider,
+    valor: numero(c.crescimento!.visualizacoes!),
+  }))
+  const viewsNoPeriodo = comViews.reduce((soma, c) => soma + (c.crescimento!.visualizacoes ?? 0), 0)
 
   const semDados = dados?.contas.filter(c => !c.ok) ?? []
   const comLimitacao = dados?.contas.filter(c => c.ok && c.limitacao) ?? []
@@ -210,10 +262,19 @@ export default function ReportsPage() {
               nota={dados.totais.redesComCrescimento > 0
                 ? `${variacao(dados.totais.crescimentoSeguidores)} em ${dias} dias · ${dados.totais.redesComDados} de ${dados.totais.redesConectadas} rede(s)`
                 : `somando ${dados.totais.redesComDados} de ${dados.totais.redesConectadas} rede(s)`}
-              corNota={dados.totais.redesComCrescimento > 0 ? corDaVariacao(dados.totais.crescimentoSeguidores) : undefined} />
-            <CartaoMetrica icone={Eye} rotulo="Visualizações" valor={numero(dados.totais.visualizacoes)}
-              nota="YouTube — total do canal" />
-            <CartaoMetrica icone={FileText} rotulo="Publicações nas redes" valor={numero(dados.totais.publicacoes)} />
+              corNota={dados.totais.redesComCrescimento > 0 ? corDaVariacao(dados.totais.crescimentoSeguidores) : undefined}
+              porRede={seguidoresPorRede} />
+            <CartaoMetrica icone={Eye} rotulo={`Visualizações (${dias}d)`}
+              valor={viewsPorRede.length ? numero(viewsNoPeriodo) : '—'}
+              nota={viewsPorRede.length
+                ? `${numero(dados.totais.visualizacoes)} desde sempre`
+                : 'Só o YouTube expõe visualizações por período'}
+              porRede={viewsPorRede} />
+            <CartaoMetrica icone={FileText} rotulo="Publicações nas redes" valor={numero(dados.totais.publicacoes)}
+              nota="total de cada conta, desde sempre"
+              porRede={okContas.filter(c => c.publicacoes !== undefined)
+                .sort((a, b) => (b.publicacoes ?? 0) - (a.publicacoes ?? 0))
+                .map(c => ({ provider: c.provider, valor: numero(c.publicacoes) }))} />
             <CartaoMetrica icone={Send} rotulo={`Publicados pelo sistema (${dias}d)`}
               valor={String(dados.totais.publicadosPeloSistema)} />
           </motion.div>
