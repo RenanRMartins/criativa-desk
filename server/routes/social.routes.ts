@@ -214,7 +214,10 @@ const META_REDIRECT = `${process.env.BACKEND_URL ?? 'https://criativa-desk-produ
 // precisa estar na configuração do Login para Empresas, senão o scope daqui nem é enviado.
 const META_SCOPES: Record<string, string> = {
   FACEBOOK: 'public_profile,business_management,pages_show_list,pages_manage_posts,pages_read_engagement',
-  INSTAGRAM: 'public_profile,business_management,pages_show_list,instagram_basic,instagram_content_publish,pages_read_engagement',
+  // instagram_manage_insights é avançada, MAS o admin do app já a recebe em
+  // modo de desenvolvimento — é assim que se grava o vídeo da revisão
+  // mostrando a permissão em uso, que é o que a Meta exige ver.
+  INSTAGRAM: 'public_profile,business_management,pages_show_list,instagram_basic,instagram_content_publish,instagram_manage_insights,pages_read_engagement',
 }
 
 // IDs das configurações do Login para Empresas (painel da Meta → Configurations).

@@ -19,6 +19,8 @@ type Conta = {
   publicacoes?: number
   visualizacoes?: number
   curtidas?: number
+  alcance?: number
+  alcanceDias?: number
   limitacao?: string
   crescimento?: {
     seguidores: number | null
@@ -395,6 +397,7 @@ export default function ReportsPage() {
                           {numero(c.seguidores)} seguidores
                           {c.publicacoes !== undefined && ` · ${numero(c.publicacoes)} publicações`}
                           {c.visualizacoes !== undefined && ` · ${numero(c.visualizacoes)} views`}
+                          {c.alcance !== undefined && ` · ${numero(c.alcance)} de alcance em ${c.alcanceDias}d`}
                         </span>
                         {c.crescimento?.seguidores !== null && c.crescimento?.seguidores !== undefined && (
                           <span className="px-2 py-0.5 rounded-full font-medium"

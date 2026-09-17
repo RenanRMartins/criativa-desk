@@ -23,6 +23,9 @@ export type MetricasConta = {
   visualizacoes?: number
   curtidas?: number
   comentarios?: number
+  /** Só Instagram, e só com instagram_manage_insights concedida. */
+  alcance?: number
+  alcanceDias?: number
   /** O que esta rede ainda não entrega e por quê. */
   limitacao?: string
   /** Variação no período. Null quando ainda não há base de comparação. */
@@ -86,7 +89,10 @@ function motivoMeta(texto: string, padrao: string) {
   return padrao
 }
 
-async function instagram(conta: { id: string; profileId: string; accessToken: string; profileName: string }): Promise<MetricasConta> {
+async function instagram(
+  conta: { id: string; profileId: string; accessToken: string; profileName: string },
+  dias: number,
+): Promise<MetricasConta> {
   const base = { accountId: conta.id, provider: 'INSTAGRAM', profileName: conta.profileName }
 
   const perfil = await graph(`${conta.profileId}?fields=followers_count,media_count`, conta.accessToken)
@@ -96,18 +102,37 @@ async function instagram(conta: { id: string; profileId: string; accessToken: st
 
   const p = perfil.json as { followers_count?: number; media_count?: number }
 
-  // alcance e impressões exigem instagram_manage_insights, permissão avançada
-  // que ainda não temos aprovada — tentamos e, se negar, dizemos o porquê
-  const insights = await graph(`${conta.profileId}/insights?metric=reach&period=day`, conta.accessToken)
-  const limitacao = insights.ok ? undefined
-    : 'Alcance e impressões exigem a permissão instagram_manage_insights, ainda não aprovada pela Meta.'
+  // Alcance exige instagram_manage_insights. Em modo de desenvolvimento o admin
+  // do app já a recebe, então isto funciona antes da aprovação — e é assim que
+  // se grava o vídeo da revisão mostrando a permissão em uso.
+  // A API aceita no máximo 30 dias por consulta.
+  const janela = Math.min(dias, 30)
+  const desde = Math.floor((Date.now() - janela * 86400000) / 1000)
+  const ate = Math.floor(Date.now() / 1000)
+  const insights = await graph(
+    `${conta.profileId}/insights?metric=reach&period=day&since=${desde}&until=${ate}`,
+    conta.accessToken,
+  )
+
+  if (!insights.ok) {
+    return {
+      ...base, ok: true,
+      seguidores: p.followers_count ?? 0,
+      publicacoes: p.media_count ?? 0,
+      limitacao: `Alcance ainda não disponível: ${motivoMeta(insights.texto, `HTTP ${insights.status}`)}`,
+    }
+  }
+
+  const serie = (insights.json?.data as { values?: { value?: number }[] }[] | undefined)?.[0]?.values ?? []
+  const alcance = serie.reduce((soma, v) => soma + (v.value ?? 0), 0)
 
   return {
     ...base,
     ok: true,
     seguidores: p.followers_count ?? 0,
     publicacoes: p.media_count ?? 0,
-    ...(limitacao ? { limitacao } : {}),
+    alcance,
+    alcanceDias: janela,
   }
 }
 
@@ -310,7 +335,7 @@ export async function coletarInsights(projectId: string, dias = 30): Promise<Met
 
   const metricas = await Promise.all(contas.map(c => {
     switch (c.provider) {
-      case 'INSTAGRAM': return instagram(c)
+      case 'INSTAGRAM': return instagram(c, dias)
       case 'FACEBOOK': return facebook(c)
       case 'YOUTUBE': return youtube(c, dias)
       case 'TIKTOK': return tiktok(c)
