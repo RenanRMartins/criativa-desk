@@ -617,8 +617,24 @@ router.post('/accounts/:id/test', authMiddleware, async (req: AuthRequest, res: 
 
 // DELETE /api/social/accounts/:id
 router.delete('/accounts/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
-  await prisma.socialAccount.delete({ where: { id: req.params.id as string } })
-  res.json({ message: 'Desconectado' })
+  const id = req.params.id as string
+  try {
+    // A conta tem métricas e registros de integração apontando para ela. As
+    // métricas passaram a existir quando os Relatórios começaram a gravar
+    // snapshot diário — foi aí que desconectar quebrou por chave estrangeira.
+    await prisma.$transaction([
+      prisma.metric.deleteMany({ where: { socialAccountId: id } }),
+      // o histórico de publicação continua útil para auditoria, então ele
+      // perde o vínculo em vez de sumir junto com a conta
+      prisma.integrationLog.updateMany({ where: { socialAccountId: id }, data: { socialAccountId: null } }),
+      prisma.socialAccount.delete({ where: { id } }),
+    ])
+    res.json({ message: 'Desconectado' })
+  } catch (err) {
+    const detalhe = err instanceof Error ? err.message : String(err)
+    console.error('[social] falha ao desconectar:', detalhe)
+    res.status(500).json({ message: `Não foi possível desconectar: ${detalhe.slice(0, 250)}` })
+  }
 })
 
 export default router

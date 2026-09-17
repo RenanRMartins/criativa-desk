@@ -148,9 +148,19 @@ export default function SettingsPage() {
     }
   }
 
+  // sem try/catch a falha morria silenciosa: o botão não fazia nada e não
+  // dizia por quê — foi exatamente o que aconteceu quando a exclusão passou a
+  // esbarrar nas métricas gravadas pelos Relatórios
   async function disconnectNetwork(accountId: string) {
-    await api.delete(`/social/accounts/${accountId}`)
-    setConnectedAccounts(prev => prev.filter(a => a.id !== accountId))
+    try {
+      await api.delete(`/social/accounts/${accountId}`)
+      setConnectedAccounts(prev => prev.filter(a => a.id !== accountId))
+      setOauthMessage({ type: 'success', text: 'Conta desconectada.' })
+    } catch (e) {
+      setOauthMessage({ type: 'error', text: e instanceof Error ? e.message : 'Falha ao desconectar' })
+    } finally {
+      setTimeout(() => setOauthMessage(null), 6000)
+    }
   }
 
   // "Conectado" não quer dizer "publica": o token pode estar sem os escopos.
