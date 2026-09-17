@@ -297,7 +297,14 @@ async function calcularCrescimento(metricas: MetricasConta[], dias: number): Pro
 /** Coleta tudo em paralelo; uma rede fora do ar não derruba as outras. */
 export async function coletarInsights(projectId: string, dias = 30): Promise<MetricasConta[]> {
   const contas = await prisma.socialAccount.findMany({
-    where: { projectId, status: 'CONNECTED' },
+    where: {
+      projectId,
+      status: 'CONNECTED',
+      // O LinkedIn fica fora: a API não expõe métricas de perfil pessoal, então
+      // ele só ocupava espaço com um aviso que nunca vai mudar. A conta segue
+      // conectada e publicando — é só o relatório que deixa de listá-la.
+      provider: { not: 'LINKEDIN' },
+    },
     select: { id: true, provider: true, profileId: true, profileName: true, accessToken: true, refreshToken: true, expiresAt: true },
   })
 
