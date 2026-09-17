@@ -2,17 +2,19 @@ import { Router, type Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
 import { getSearchSuggestions } from '../services/search.service'
+import { exigirPermissao, exigirPermissaoDoPost } from '../middleware/permissao.middleware'
+import { escopoDeProjeto } from '../middleware/permissao.middleware'
 
 const router = Router()
 router.use(authMiddleware)
 
-router.get('/', async (req: AuthRequest, res: Response) => {
+router.get('/', exigirPermissao('searchdesk'), async (req: AuthRequest, res: Response) => {
   const { projectId, q } = req.query as { projectId?: string; q?: string }
 
   const [dbTerms, project] = await Promise.all([
     prisma.searchTerm.findMany({
       where: {
-        project: { members: { some: { userId: req.userId } } },
+        project: await escopoDeProjeto(req.userId!),
         ...(projectId ? { projectId } : {}),
         ...(q ? { term: { contains: q, mode: 'insensitive' } } : {}),
       },

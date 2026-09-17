@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
+import { escopoDeProjeto } from '../middleware/permissao.middleware'
 
 const router = Router()
 
@@ -39,7 +40,7 @@ router.use(authMiddleware)
 
 router.get('/', async (req: AuthRequest, res: Response) => {
   const approvals = await prisma.postApproval.findMany({
-    where: { project: { members: { some: { userId: req.userId } } } },
+    where: { project: await escopoDeProjeto(req.userId!) },
     include: { post: { include: { media: true } }, comments: true },
     orderBy: { createdAt: 'desc' },
   })

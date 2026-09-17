@@ -3,11 +3,13 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
 import { getGoogleTrends } from '../services/trends.service'
 import { ensureNicheTrends } from '../services/niche-trends.service'
+import { exigirPermissao, exigirPermissaoDoPost } from '../middleware/permissao.middleware'
+import { escopoDeProjeto } from '../middleware/permissao.middleware'
 
 const router = Router()
 router.use(authMiddleware)
 
-router.get('/', async (req: AuthRequest, res: Response) => {
+router.get('/', exigirPermissao('trenddesk'), async (req: AuthRequest, res: Response) => {
   const { projectId, niche } = req.query
 
   // projeto sem tendências do próprio nicho dispara a geração por IA em background
@@ -17,7 +19,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     getGoogleTrends(),
     prisma.trendItem.findMany({
       where: {
-        project: { members: { some: { userId: req.userId } } },
+        project: await escopoDeProjeto(req.userId!),
         ...(projectId ? { projectId: projectId as string } : {}),
         ...(niche ? { niche: { contains: niche as string, mode: 'insensitive' } } : {}),
         validUntil: { gte: new Date() },

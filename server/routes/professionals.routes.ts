@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
+import { escopoDeProjeto } from '../middleware/permissao.middleware'
 
 const router = Router()
 
@@ -57,7 +58,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   const professionals = await prisma.professional.findMany({
     where: projectId
       ? { projectId: projectId as string }
-      : { project: { members: { some: { userId: req.userId } } } },
+      : { project: await escopoDeProjeto(req.userId!) },
     include: { videoTasks: { orderBy: { deadline: 'asc' } } },
   })
   res.json(professionals)

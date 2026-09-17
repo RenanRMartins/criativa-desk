@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
 import { selectPublishAccounts } from '../services/publish.service'
 import { publishDuePosts } from '../workers/publish.worker'
+import { exigirPermissao, exigirPermissaoDoPost } from '../middleware/permissao.middleware'
+import { escopoDeProjeto } from '../middleware/permissao.middleware'
 
 const router = Router()
 router.use(authMiddleware)
@@ -12,7 +14,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   const posts = await prisma.post.findMany({
     where: {
       status: { in: ['APPROVED', 'SCHEDULED'] },
-      project: { members: { some: { userId: req.userId } } },
+      project: await escopoDeProjeto(req.userId!),
       ...(projectId ? { projectId: projectId as string } : {}),
     },
     include: { media: true, approval: true },
@@ -23,11 +25,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 // Publicar agora — real quando SOCIAL_MOCK_MODE=false
 // Body opcional: { accountIds: string[] } — contas escolhidas para a publicação
-router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
+router.post('/:postId/publish', exigirPermissaoDoPost('posts.publicar'), async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
     where: {
       id: req.params.postId as string,
-      project: { members: { some: { userId: req.userId } } },
+      project: await escopoDeProjeto(req.userId!),
     },
     include: { media: true },
   })
@@ -84,11 +86,11 @@ router.post('/:postId/publish', async (req: AuthRequest, res: Response) => {
   })
 })
 
-router.delete('/:postId', async (req: AuthRequest, res: Response) => {
+router.delete('/:postId', exigirPermissaoDoPost('posts.publicar'), async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
     where: {
       id: req.params.postId as string,
-      project: { members: { some: { userId: req.userId } } },
+      project: await escopoDeProjeto(req.userId!),
     },
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }

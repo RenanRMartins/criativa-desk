@@ -7,40 +7,43 @@ import {
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/store/uiStore'
 import { motion, AnimatePresence } from 'motion/react'
+import { usePermissoes } from '@/hooks/usePermissoes'
 
 const NAV_SECTIONS = [
   {
     items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/projects', icon: FolderOpen, label: 'Projetos' },
-      { to: '/calendar', icon: CalendarDays, label: 'Calendário' },
-      { to: '/videos', icon: Video, label: 'Vídeos' },
-      { to: '/approvals', icon: CheckCircle2, label: 'Aprovações' },
-      { to: '/scheduling', icon: Clock, label: 'Agendamentos' },
+      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' , permissao: 'dashboard'},
+      { to: '/projects', icon: FolderOpen, label: 'Projetos' , permissao: 'projetos'},
+      { to: '/calendar', icon: CalendarDays, label: 'Calendário' , permissao: 'calendario'},
+      { to: '/videos', icon: Video, label: 'Vídeos' , permissao: 'videos'},
+      { to: '/approvals', icon: CheckCircle2, label: 'Aprovações' , permissao: 'aprovacoes'},
+      { to: '/scheduling', icon: Clock, label: 'Agendamentos' , permissao: 'posts.publicar'},
     ],
   },
   {
     label: 'Inteligência',
     items: [
-      { to: '/copydesk', icon: Sparkles, label: 'CopyDesk', badge: 'IA' },
-      { to: '/trenddesk', icon: TrendingUp, label: 'TrendDesk' },
-      { to: '/searchdesk', icon: Search, label: 'SearchDesk' },
-      { to: '/designdesk', icon: Palette, label: 'DesignDesk' },
+      { to: '/copydesk', icon: Sparkles, label: 'CopyDesk', badge: 'IA' , permissao: 'copydesk'},
+      { to: '/trenddesk', icon: TrendingUp, label: 'TrendDesk' , permissao: 'trenddesk'},
+      { to: '/searchdesk', icon: Search, label: 'SearchDesk' , permissao: 'searchdesk'},
+      { to: '/designdesk', icon: Palette, label: 'DesignDesk' , permissao: 'designdesk'},
     ],
   },
   {
     items: [
-      { to: '/library', icon: Library, label: 'Biblioteca' },
-      { to: '/reports', icon: BarChart3, label: 'Relatórios' },
+      { to: '/library', icon: Library, label: 'Biblioteca' , permissao: 'biblioteca'},
+      { to: '/reports', icon: BarChart3, label: 'Relatórios' , permissao: 'relatorios'},
       { to: '/settings', icon: Settings, label: 'Configurações' },
     ],
   },
 ]
 
-type NavItem = { to: string; icon: React.ElementType; label: string; badge?: string }
+type NavItem = { to: string; icon: React.ElementType; label: string; badge?: string; permissao?: string }
 
 export default function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useUIStore()
+  // esconder é conveniência: quem barra de verdade é o backend
+  const { pode } = usePermissoes()
 
   return (
     <motion.aside
@@ -88,7 +91,11 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-0.5 relative">
-        {NAV_SECTIONS.map((section, si) => (
+        {NAV_SECTIONS.map((section, si) => {
+          const visiveis = section.items.filter(item => !item.permissao || pode(item.permissao))
+          // seção sem item visível deixaria um título solto e um divisor à toa
+          if (visiveis.length === 0) return null
+          return (
           <div key={si}>
             {si > 0 && (
               <div className="my-2.5">
@@ -106,9 +113,10 @@ export default function Sidebar() {
                 )}
               </div>
             )}
-            {section.items.map(item => <NavItem key={item.to} item={item} collapsed={sidebarCollapsed} />)}
+            {visiveis.map(item => <NavItem key={item.to} item={item} collapsed={sidebarCollapsed} />)}
           </div>
-        ))}
+          )
+        })}
       </nav>
 
       {/* Bottom version tag */}

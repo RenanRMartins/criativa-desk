@@ -2,6 +2,8 @@ import { Router, type Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
+import { exigirPermissao, exigirPermissaoDoPost } from '../middleware/permissao.middleware'
+import { escopoDeProjeto } from '../middleware/permissao.middleware'
 
 const router = Router()
 router.use(authMiddleware)
@@ -9,7 +11,7 @@ router.use(authMiddleware)
 router.get('/', async (req: AuthRequest, res: Response) => {
   const { projectId, status, format, from, to } = req.query
   const where: Record<string, unknown> = {
-    project: { members: { some: { userId: req.userId } } },
+    project: await escopoDeProjeto(req.userId!),
   }
   if (projectId) where.projectId = projectId
   if (status) where.status = status
@@ -30,14 +32,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
-    where: { id: req.params.id as string, project: { members: { some: { userId: req.userId } } } },
+    where: { id: req.params.id as string, project: await escopoDeProjeto(req.userId!) },
     include: { media: true, approval: { include: { comments: true } }, videoTasks: true, author: { select: { id: true, name: true, email: true } } },
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
   res.json(post)
 })
 
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', exigirPermissao('posts.criar'), async (req: AuthRequest, res: Response) => {
   const schema = z.object({
     projectId: z.string(),
     title: z.string().min(1),
@@ -84,9 +86,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   res.status(201).json(post)
 })
 
-router.patch('/:id', async (req: AuthRequest, res: Response) => {
+router.patch('/:id', exigirPermissaoDoPost('posts.criar'), async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
-    where: { id: req.params.id as string, project: { members: { some: { userId: req.userId } } } },
+    where: { id: req.params.id as string, project: await escopoDeProjeto(req.userId!) },
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 
@@ -102,9 +104,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   res.json(updated)
 })
 
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
+router.delete('/:id', exigirPermissaoDoPost('posts.criar'), async (req: AuthRequest, res: Response) => {
   const post = await prisma.post.findFirst({
-    where: { id: req.params.id as string, project: { members: { some: { userId: req.userId } } } },
+    where: { id: req.params.id as string, project: await escopoDeProjeto(req.userId!) },
   })
   if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
 

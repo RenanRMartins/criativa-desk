@@ -53,6 +53,43 @@ export function exigirPermissao(permissao: Permissao) {
   }
 }
 
+/**
+ * Para rotas que recebem o post e não o projeto (PATCH /posts/:id,
+ * /scheduling/:postId/publish). O projeto vem do próprio post — confiar num
+ * projectId enviado pelo cliente aqui deixaria escolher o projeto onde se tem
+ * acesso e agir noutro.
+ */
+export function exigirPermissaoDoPost(permissao: Permissao) {
+  return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    const postId = (req.params?.postId ?? req.params?.id) as string | undefined
+    if (!postId) { res.status(400).json({ message: 'post não informado' }); return }
+
+    const post = await prisma.post.findUnique({ where: { id: postId }, select: { projectId: true } })
+    if (!post) { res.status(404).json({ message: 'Post não encontrado' }); return }
+
+    const permissoes = await permissoesNoProjeto(req.userId!, post.projectId)
+    if (!permissoes.includes(permissao)) {
+      res.status(403).json({
+        message: `Seu acesso neste projeto não inclui "${permissao}". Peça a um administrador.`,
+        permissaoFaltante: permissao,
+      })
+      return
+    }
+    next()
+  }
+}
+
+/**
+ * Filtro de projetos visíveis. Dono e administrador do sistema enxergam todos:
+ * uma conta de admin recém-criada não é membro de nada, e sem isto ela entraria
+ * num sistema aparentemente vazio — falha silenciosa e confusa.
+ */
+export async function escopoDeProjeto(userId: string) {
+  const usuario = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
+  if (usuario?.role === 'OWNER' || usuario?.role === 'ADMIN') return {}
+  return { members: { some: { userId } } }
+}
+
 /** Só quem é dono ou administrador do sistema — usado para gerir acessos. */
 export async function exigirAdminDoSistema(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   const usuario = await prisma.user.findUnique({ where: { id: req.userId! }, select: { role: true } })

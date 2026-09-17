@@ -2,13 +2,14 @@ import { Router, type Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
+import { escopoDeProjeto } from '../middleware/permissao.middleware'
 
 const router = Router()
 router.use(authMiddleware)
 
 router.get('/', async (req: AuthRequest, res: Response) => {
   const projects = await prisma.project.findMany({
-    where: { members: { some: { userId: req.userId } }, isActive: true },
+    where: { ...(await escopoDeProjeto(req.userId!)), isActive: true },
     include: { _count: { select: { posts: true, professionals: true } } },
     orderBy: { createdAt: 'asc' },
   })
@@ -17,7 +18,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   const project = await prisma.project.findFirst({
-    where: { id: req.params.id as string, members: { some: { userId: req.userId } } },
+    where: { id: req.params.id as string, ...(await escopoDeProjeto(req.userId!)) },
     include: { members: { include: { user: { select: { id: true, name: true, email: true, avatar: true } } } }, socialAccounts: true },
   })
   if (!project) { res.status(404).json({ message: 'Projeto não encontrado' }); return }

@@ -3,11 +3,13 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
 import { streamCopyGeneration } from '../services/copydesk.service'
+import { exigirPermissao, exigirPermissaoDoPost } from '../middleware/permissao.middleware'
+import { escopoDeProjeto } from '../middleware/permissao.middleware'
 
 const router = Router()
 router.use(authMiddleware)
 
-router.post('/generate', async (req: AuthRequest, res: Response) => {
+router.post('/generate', exigirPermissao('copydesk'), async (req: AuthRequest, res: Response) => {
   const schema = z.object({
     projectId: z.string(),
     type: z.string(),
@@ -18,7 +20,7 @@ router.post('/generate', async (req: AuthRequest, res: Response) => {
   if (!body.success) { res.status(400).json({ message: 'Dados inválidos' }); return }
 
   const project = await prisma.project.findFirst({
-    where: { id: body.data.projectId, members: { some: { userId: req.userId } } },
+    where: { id: body.data.projectId, ...(await escopoDeProjeto(req.userId!)) },
   })
   if (!project) { res.status(404).json({ message: 'Projeto não encontrado' }); return }
 
