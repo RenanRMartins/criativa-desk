@@ -19,7 +19,7 @@ router.get('/', exigirPermissao('relatorios'), async (req: AuthRequest, res: Res
   const dias = Math.min(Number(req.query.dias ?? 30) || 30, 365)
 
   const [contas, serie, publicados] = await Promise.all([
-    coletarInsights(projectId),
+    coletarInsights(projectId, dias),
     historico(projectId, dias),
     prisma.post.findMany({
       where: {

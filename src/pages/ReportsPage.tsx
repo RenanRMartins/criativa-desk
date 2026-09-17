@@ -20,6 +20,21 @@ type Conta = {
   visualizacoes?: number
   curtidas?: number
   limitacao?: string
+  analytics?: {
+    minutosAssistidos: number
+    duracaoMediaSegundos: number
+    retencaoMediaPct: number
+    inscritosGanhos: number
+    inscritosPerdidos: number
+    fontes: { fonte: string; views: number }[]
+    porDia: { data: string; views: number; minutos: number }[]
+  }
+}
+
+function duracao(segundos: number) {
+  const m = Math.floor(segundos / 60)
+  const s = Math.round(segundos % 60)
+  return `${m}m${String(s).padStart(2, '0')}s`
 }
 
 type Relatorio = {
@@ -85,8 +100,15 @@ export default function ReportsPage() {
 
   useEffect(() => { void carregar() }, [carregar])
 
-  // uma linha por dia, somando as redes — a série vem do que foi guardado,
-  // porque as APIs só respondem "agora" e não o passado
+  // O YouTube é a única rede que devolve o passado. Quando ele responde, o
+  // gráfico usa esse histórico real; as outras só permitem o que guardamos.
+  const analyticsYT = dados?.contas.find(c => c.analytics)?.analytics
+  const graficoYT = (analyticsYT?.porDia ?? []).map(d => ({
+    data: d.data.slice(8) + '/' + d.data.slice(5, 7),
+    views: d.views,
+    minutos: d.minutos,
+  }))
+
   const grafico = Object.values(
     (dados?.serie ?? []).reduce((acc, p) => {
       acc[p.data] ??= { data: p.data.slice(8) + '/' + p.data.slice(5, 7), seguidores: 0, visualizacoes: 0 }
@@ -171,13 +193,84 @@ export default function ReportsPage() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-          ) : dados.totais.redesComDados > 0 && (
+          ) : dados.totais.redesComDados > 0 && graficoYT.length === 0 && (
             <div className="rounded-2xl p-5 flex items-start gap-2.5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
               <Info size={16} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--color-gray-text)' }} />
               <p className="text-sm" style={{ color: 'var(--color-gray-text)' }}>
-                O gráfico de evolução aparece a partir do segundo dia. As redes só respondem o número de
-                agora — o histórico é guardado por nós a cada consulta.
+                O gráfico de evolução aparece a partir do segundo dia. Instagram, Facebook e TikTok só
+                respondem o número de agora — o histórico é guardado por nós a cada consulta. O YouTube
+                é exceção: a Analytics API devolve o passado.
               </p>
+            </div>
+          )}
+
+          {analyticsYT && (
+            <div className="rounded-2xl p-5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
+              <h2 className="font-heading font-semibold text-base mb-1">YouTube — desempenho</h2>
+              <p className="text-xs mb-4" style={{ color: 'var(--color-gray-text)' }}>
+                Últimos {dias} dias. Estes são dados históricos da própria rede, não o retrato de hoje.
+              </p>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-5">
+                <div className="p-3 rounded-xl" style={{ background: 'var(--color-gray-light)' }}>
+                  <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>Retenção média</p>
+                  <p className="font-heading font-bold text-xl">{analyticsYT.retencaoMediaPct.toFixed(1)}%</p>
+                </div>
+                <div className="p-3 rounded-xl" style={{ background: 'var(--color-gray-light)' }}>
+                  <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>Duração média assistida</p>
+                  <p className="font-heading font-bold text-xl">{duracao(analyticsYT.duracaoMediaSegundos)}</p>
+                </div>
+                <div className="p-3 rounded-xl" style={{ background: 'var(--color-gray-light)' }}>
+                  <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>Tempo assistido</p>
+                  <p className="font-heading font-bold text-xl">{numero(analyticsYT.minutosAssistidos)} min</p>
+                </div>
+                <div className="p-3 rounded-xl" style={{ background: 'var(--color-gray-light)' }}>
+                  <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>Saldo de inscritos</p>
+                  <p className="font-heading font-bold text-xl">
+                    {analyticsYT.inscritosGanhos - analyticsYT.inscritosPerdidos >= 0 ? '+' : ''}
+                    {analyticsYT.inscritosGanhos - analyticsYT.inscritosPerdidos}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>
+                    +{analyticsYT.inscritosGanhos} / −{analyticsYT.inscritosPerdidos}
+                  </p>
+                </div>
+              </div>
+
+              {graficoYT.length > 1 && (
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={graficoYT}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-gray-border)" />
+                    <XAxis dataKey="data" fontSize={11} stroke="var(--color-gray-text)" />
+                    <YAxis fontSize={11} stroke="var(--color-gray-text)" />
+                    <Tooltip />
+                    <Area type="monotone" dataKey="views" name="Visualizações"
+                      stroke="#FF0000" fill="#FF000022" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+
+              {analyticsYT.fontes.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="text-sm font-medium mb-2">De onde vêm as visualizações</h3>
+                  <div className="space-y-1.5">
+                    {analyticsYT.fontes.map(f => {
+                      const maior = analyticsYT.fontes[0]?.views || 1
+                      return (
+                        <div key={f.fonte} className="flex items-center gap-2 text-xs">
+                          <span className="w-40 truncate flex-shrink-0">{f.fonte}</span>
+                          <span className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--color-gray-light)' }}>
+                            <span className="block h-full rounded-full origin-left"
+                              style={{ background: '#FF0000', width: `${(f.views / maior) * 100}%` }} />
+                          </span>
+                          <span className="tabular-nums flex-shrink-0" style={{ color: 'var(--color-gray-text)' }}>
+                            {numero(f.views)}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

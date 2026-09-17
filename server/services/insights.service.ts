@@ -25,7 +25,40 @@ export type MetricasConta = {
   comentarios?: number
   /** O que esta rede ainda não entrega e por quê. */
   limitacao?: string
+  /** Só YouTube: vem da Analytics API, que é o único que devolve o passado. */
+  analytics?: {
+    minutosAssistidos: number
+    duracaoMediaSegundos: number
+    retencaoMediaPct: number
+    inscritosGanhos: number
+    inscritosPerdidos: number
+    fontes: { fonte: string; views: number }[]
+    porDia: { data: string; views: number; minutos: number }[]
+  }
 }
+
+/** Nomes que a API devolve para a origem do tráfego, em português. */
+const FONTES_TRAFEGO: Record<string, string> = {
+  ADVERTISING: 'Anúncios',
+  ANNOTATION: 'Anotações',
+  CAMPAIGN_CARD: 'Cards',
+  END_SCREEN: 'Tela final',
+  EXT_URL: 'Sites externos',
+  NO_LINK_EMBEDDED: 'Player incorporado',
+  NO_LINK_OTHER: 'Direto / desconhecido',
+  NOTIFICATION: 'Notificações',
+  PLAYLIST: 'Playlists',
+  PROMOTED: 'Promovido',
+  RELATED_VIDEO: 'Vídeos relacionados',
+  SHORTS: 'Feed do Shorts',
+  SOUND_PAGE: 'Página de som',
+  SUBSCRIBER: 'Página de inscrições',
+  YT_CHANNEL: 'Páginas de canal',
+  YT_OTHER_PAGE: 'Outras páginas do YouTube',
+  YT_SEARCH: 'Busca do YouTube',
+}
+
+function dataISO(d: Date) { return d.toISOString().slice(0, 10) }
 
 async function graph(path: string, token: string) {
   const sep = path.includes('?') ? '&' : '?'
@@ -84,7 +117,7 @@ async function facebook(conta: { id: string; profileId: string; accessToken: str
   return { ...base, ok: true, seguidores }
 }
 
-async function youtube(conta: { id: string; accessToken: string; refreshToken: string | null; profileName: string }): Promise<MetricasConta> {
+async function youtube(conta: { id: string; accessToken: string; refreshToken: string | null; profileName: string }, dias: number): Promise<MetricasConta> {
   const base = { accountId: conta.id, provider: 'YOUTUBE', profileName: conta.profileName }
   try {
     const client = new google.auth.OAuth2(process.env['GAUTH_ID'], process.env['GAUTH_SEC'])
@@ -103,16 +136,72 @@ async function youtube(conta: { id: string; accessToken: string; refreshToken: s
     const s = canal.data.items?.[0]?.statistics
     if (!s) return { ...base, ok: false, motivo: 'O YouTube não devolveu estatísticas para este canal.' }
 
-    return {
+    const parcial = {
       ...base,
-      ok: true,
+      ok: true as const,
       seguidores: Number(s.subscriberCount ?? 0),
       publicacoes: Number(s.videoCount ?? 0),
       visualizacoes: Number(s.viewCount ?? 0),
-      limitacao: 'Retenção e origem do tráfego exigem a YouTube Analytics API, ainda não integrada.',
     }
+
+    // A Analytics API é o único caso em que a rede devolve o PASSADO. As
+    // outras só dizem "agora", e por isso guardamos snapshot diário.
+    const analytics = await youtubeAnalytics(client, dias)
+    if ('erro' in analytics) return { ...parcial, limitacao: analytics.erro }
+    return { ...parcial, analytics: analytics.dados }
   } catch (err) {
     return { ...base, ok: false, motivo: err instanceof Error ? err.message.slice(0, 250) : 'Falha ao consultar o YouTube' }
+  }
+}
+
+/**
+ * Retenção, tempo assistido, saldo de inscritos e origem do tráfego.
+ *
+ * Exige o escopo yt-analytics.readonly. Quem conectou antes dele existir
+ * recebe 403 — por isso a mensagem manda reconectar em vez de dizer só "sem
+ * permissão", que não diz o que fazer.
+ */
+async function youtubeAnalytics(client: InstanceType<typeof google.auth.OAuth2>, dias: number) {
+  const fim = new Date()
+  // a Analytics leva ~2 dias para fechar os números do dia
+  const inicio = new Date(Date.now() - dias * 86400000)
+
+  try {
+    const ya = google.youtubeAnalytics({ version: 'v2', auth: client })
+    const comum = { ids: 'channel==MINE', startDate: dataISO(inicio), endDate: dataISO(fim) }
+
+    const [totais, porDia, fontes] = await Promise.all([
+      ya.reports.query({ ...comum, metrics: 'estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost' }),
+      ya.reports.query({ ...comum, metrics: 'views,estimatedMinutesWatched', dimensions: 'day', sort: 'day' }),
+      ya.reports.query({ ...comum, metrics: 'views', dimensions: 'insightTrafficSourceType', sort: '-views', maxResults: 6 }),
+    ])
+
+    const t = totais.data.rows?.[0] ?? []
+    return {
+      dados: {
+        minutosAssistidos: Number(t[0] ?? 0),
+        duracaoMediaSegundos: Number(t[1] ?? 0),
+        retencaoMediaPct: Number(t[2] ?? 0),
+        inscritosGanhos: Number(t[3] ?? 0),
+        inscritosPerdidos: Number(t[4] ?? 0),
+        fontes: (fontes.data.rows ?? []).map(r => ({
+          fonte: FONTES_TRAFEGO[String(r[0])] ?? String(r[0]),
+          views: Number(r[1] ?? 0),
+        })),
+        porDia: (porDia.data.rows ?? []).map(r => ({
+          data: String(r[0]),
+          views: Number(r[1] ?? 0),
+          minutos: Number(r[2] ?? 0),
+        })),
+      },
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    // 403 aqui quase sempre é conta conectada antes do escopo existir
+    if (/insufficient|scope|403|forbidden/i.test(msg)) {
+      return { erro: 'As estatísticas detalhadas exigem reconectar o YouTube: a conta foi autorizada antes de pedirmos o escopo de Analytics.' }
+    }
+    return { erro: `YouTube Analytics recusou a consulta: ${msg.slice(0, 200)}` }
   }
 }
 
@@ -148,7 +237,7 @@ async function tiktok(conta: {
 }
 
 /** Coleta tudo em paralelo; uma rede fora do ar não derruba as outras. */
-export async function coletarInsights(projectId: string): Promise<MetricasConta[]> {
+export async function coletarInsights(projectId: string, dias = 30): Promise<MetricasConta[]> {
   const contas = await prisma.socialAccount.findMany({
     where: { projectId, status: 'CONNECTED' },
     select: { id: true, provider: true, profileId: true, profileName: true, accessToken: true, refreshToken: true, expiresAt: true },
@@ -158,7 +247,7 @@ export async function coletarInsights(projectId: string): Promise<MetricasConta[
     switch (c.provider) {
       case 'INSTAGRAM': return instagram(c)
       case 'FACEBOOK': return facebook(c)
-      case 'YOUTUBE': return youtube(c)
+      case 'YOUTUBE': return youtube(c, dias)
       case 'TIKTOK': return tiktok(c)
       default: return Promise.resolve<MetricasConta>({
         accountId: c.id, provider: c.provider, profileName: c.profileName,

@@ -53,6 +53,9 @@ const SCOPES: Record<string, string[]> = {
   YOUTUBE: [
     'https://www.googleapis.com/auth/youtube.upload',
     'https://www.googleapis.com/auth/youtube.readonly',
+    // retenção, tempo assistido e origem do tráfego vêm da Analytics API, que
+    // é um escopo à parte — sem ele a consulta volta 403
+    'https://www.googleapis.com/auth/yt-analytics.readonly',
     'https://www.googleapis.com/auth/userinfo.profile',
   ],
   GOOGLE_BUSINESS: [
