@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/authStore'
 import { useProjectStore } from '@/store/projectStore'
 import { api } from '@/lib/api'
 import type { PostFormat } from '@/types'
+import BibliotecaMidia from '@/components/design/BibliotecaMidia'
 
 // dimensões reais por formato para o design criado no Canva
 const CANVA_DIMENSIONS: Partial<Record<PostFormat, { w: number; h: number }>> = {
@@ -35,6 +36,8 @@ const STEPS = [
   { label: 'Finalizar', icon: Check },
 ]
 
+// pontos de partida visuais, não arquivos do cliente — os dele ficam
+// na biblioteca acima, que é real
 const MOCK_TEMPLATES = [
   { id: 1, name: 'Minimalista Claro', colors: ['#FAF7F2', '#6B2D3E', '#C9A96E'] },
   { id: 2, name: 'Dark Premium', colors: ['#0F0F0F', '#C4697A', '#FAF7F2'] },
@@ -234,7 +237,15 @@ export default function DesignDeskPage() {
               <p className="text-sm mb-5" style={{ color: 'var(--color-gray-text)' }}>
                 Templates adaptados ao formato{selectedFormat ? ` ${FORMAT_LABELS[selectedFormat]}` : ''}
               </p>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-xl p-4 mb-5" style={{ background: 'var(--color-gray-light)' }}>
+                <h3 className="text-sm font-medium mb-1">Meus arquivos</h3>
+                <p className="text-xs mb-3" style={{ color: 'var(--color-gray-text)' }}>
+                  O que você enviar fica guardado no projeto e pode ser reusado em qualquer post.
+                </p>
+                <BibliotecaMidia compacto />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {MOCK_TEMPLATES.map(t => (
                   <button
                     key={t.id}
