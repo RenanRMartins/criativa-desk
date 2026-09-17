@@ -61,6 +61,19 @@ app.get('/api/health', (_, res) => res.json({
   commit: process.env['RAILWAY_GIT_COMMIT_SHA']?.slice(0, 7) ?? 'local',
 }))
 
+/**
+ * Última rede: qualquer erro não tratado numa rota vira JSON, não página HTML.
+ *
+ * Sem isto, o Express devolvia HTML, o frontend não conseguia ler a mensagem e
+ * a pessoa via "Request failed" — foi exatamente assim que uma falha de chave
+ * estrangeira ao apagar conta chegou na tela sem dizer nada.
+ */
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[erro não tratado]', err)
+  if (res.headersSent) return
+  res.status(500).json({ message: err.message || 'Erro interno do servidor' })
+})
+
 app.listen(PORT, () => {
   console.log(`CrIAtiva Desk API running on http://localhost:${PORT}`)
   startPublishWorker()

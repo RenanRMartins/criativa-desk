@@ -23,8 +23,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: 'Request failed' }))
-    throw new Error(err.message ?? `HTTP ${res.status}`)
+    // "Request failed" sozinho escondia até o código HTTP: quando o servidor
+    // devolve página de erro em vez de JSON, era isso que chegava na tela.
+    const corpo = await res.text().catch(() => '')
+    let mensagem = ''
+    try { mensagem = (JSON.parse(corpo) as { message?: string }).message ?? '' } catch { /* não é JSON */ }
+    throw new Error(mensagem || `HTTP ${res.status} em ${path}${corpo ? ` — ${corpo.slice(0, 200)}` : ''}`)
   }
   return res.json() as Promise<T>
 }

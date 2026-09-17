@@ -105,9 +105,37 @@ router.delete('/usuarios/:id', exigirAdminDoSistema, async (req: AuthRequest, re
     res.status(400).json({ message: 'Esta é a última conta de administrador — crie outra antes de apagar.' }); return
   }
 
-  await prisma.projectMember.deleteMany({ where: { userId: alvo } })
-  await prisma.user.delete({ where: { id: alvo } })
-  res.json({ message: 'Conta removida' })
+  // O User tem seis relações. Apagar só o vínculo com projetos deixava as
+  // outras cinco barrarem a exclusão por chave estrangeira, e o erro do Prisma
+  // virava página HTML de 500 — que chegava na tela como "Request failed".
+  try {
+    const posts = await prisma.post.count({ where: { authorId: alvo } })
+
+    await prisma.$transaction([
+      // Post é conteúdo do cliente e não pode sumir junto com quem o escreveu.
+      // A autoria passa para quem está apagando, que é quem responde por ele agora.
+      prisma.post.updateMany({ where: { authorId: alvo }, data: { authorId: req.userId! } }),
+      // o resto é rastro pessoal e vai junto
+      prisma.copySession.deleteMany({ where: { userId: alvo } }),
+      prisma.notification.deleteMany({ where: { userId: alvo } }),
+      prisma.musicConnection.deleteMany({ where: { userId: alvo } }),
+      prisma.appConnection.deleteMany({ where: { userId: alvo } }),
+      prisma.projectMember.deleteMany({ where: { userId: alvo } }),
+      prisma.user.delete({ where: { id: alvo } }),
+    ])
+
+    res.json({
+      message: posts > 0
+        ? `Conta removida. ${posts} post(s) dessa conta passaram para você.`
+        : 'Conta removida.',
+      postsTransferidos: posts,
+    })
+  } catch (err) {
+    // sem isto o motivo real morria como 500 genérico
+    const detalhe = err instanceof Error ? err.message : String(err)
+    console.error('[acessos] falha ao apagar conta:', detalhe)
+    res.status(500).json({ message: `Não foi possível apagar a conta: ${detalhe.slice(0, 300)}` })
+  }
 })
 
 // ─── Acesso por projeto ──────────────────────────────────────────────────────
