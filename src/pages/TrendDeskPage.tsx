@@ -18,11 +18,14 @@ function TrendScoreBar({ score }: { score: number }) {
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.12)' }}>
+        {/* scaleX em vez de width: animar largura força o navegador a
+            recalcular layout a cada quadro, e há uma barra por cartão
+            animando junto — era isso que travava no tablet */}
         <motion.div
-          className="h-full rounded-full"
+          className="h-full w-full rounded-full origin-left"
           style={{ background: color }}
-          initial={{ width: 0 }}
-          animate={{ width: `${score}%` }}
+          initial={{ scaleX: 0 }}
+          animate={{ scaleX: score / 100 }}
           transition={{ duration: 0.8, ease: [0, 0, 0.2, 1], delay: 0.2 }}
         />
       </div>
@@ -62,12 +65,15 @@ function TrendCard({ trend }: { trend: TrendItem }) {
           </p>
         )}
 
+        {/* height: 'auto' remede a página a cada quadro. Opacidade sozinha
+            dá o mesmo efeito e não custa layout nenhum. */}
         {expanded && (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mt-4 space-y-3 border-t pt-4 overflow-hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="mt-4 space-y-3 border-t pt-4"
             style={{ borderTopColor: 'rgba(255,255,255,0.1)' }}
           >
             {trend.reelsIdea && (
