@@ -37,6 +37,10 @@ router.get('/', exigirPermissao('relatorios'), async (req: AuthRequest, res: Res
   guardarSnapshot(contas).catch(err => console.error('[reports] snapshot:', err))
 
   const comDados = contas.filter(c => c.ok)
+  // só soma crescimento de quem tem base de comparação; misturar null com
+  // número daria um total que parece medido e não é
+  const comCrescimento = comDados.filter(c => c.crescimento?.seguidores !== null && c.crescimento?.seguidores !== undefined)
+
   res.json({
     contas,
     serie,
@@ -49,6 +53,8 @@ router.get('/', exigirPermissao('relatorios'), async (req: AuthRequest, res: Res
       // quantas redes responderam de fato — a tela avisa quando é parcial
       redesComDados: comDados.length,
       redesConectadas: contas.length,
+      crescimentoSeguidores: comCrescimento.reduce((s, c) => s + (c.crescimento?.seguidores ?? 0), 0),
+      redesComCrescimento: comCrescimento.length,
     },
   })
 })

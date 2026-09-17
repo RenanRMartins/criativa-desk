@@ -20,6 +20,12 @@ type Conta = {
   visualizacoes?: number
   curtidas?: number
   limitacao?: string
+  crescimento?: {
+    seguidores: number | null
+    visualizacoes: number | null
+    desde: string | null
+    daRede: boolean
+  }
   analytics?: {
     minutosAssistidos: number
     duracaoMediaSegundos: number
@@ -50,6 +56,17 @@ function ComLinks({ texto }: { texto: string }) {
   )
 }
 
+/** +12 / −3 / — . O sinal importa: "12" sozinho não diz se subiu ou caiu. */
+function variacao(n: number | null | undefined) {
+  if (n === null || n === undefined) return null
+  return `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(n)}`
+}
+
+function corDaVariacao(n: number | null | undefined) {
+  if (n === null || n === undefined) return 'var(--color-gray-text)'
+  return n > 0 ? '#059669' : n < 0 ? '#EF4444' : 'var(--color-gray-text)'
+}
+
 function duracao(segundos: number) {
   const m = Math.floor(segundos / 60)
   const s = Math.round(segundos % 60)
@@ -63,6 +80,7 @@ type Relatorio = {
   totais: {
     seguidores: number; publicacoes: number; visualizacoes: number
     publicadosPeloSistema: number; redesComDados: number; redesConectadas: number
+    crescimentoSeguidores: number; redesComCrescimento: number
   }
 }
 
@@ -77,8 +95,8 @@ function numero(n?: number) {
   return n >= 1000 ? `${(n / 1000).toFixed(1).replace('.0', '')}k` : String(n)
 }
 
-function CartaoMetrica({ icone: Icone, rotulo, valor, nota }: {
-  icone: React.ElementType; rotulo: string; valor: string; nota?: string
+function CartaoMetrica({ icone: Icone, rotulo, valor, nota, corNota }: {
+  icone: React.ElementType; rotulo: string; valor: string; nota?: string; corNota?: string
 }) {
   return (
     <motion.div variants={cardVariants} className="rounded-2xl p-5"
@@ -88,7 +106,7 @@ function CartaoMetrica({ icone: Icone, rotulo, valor, nota }: {
         <span className="text-xs">{rotulo}</span>
       </div>
       <p className="font-heading font-bold text-2xl">{valor}</p>
-      {nota && <p className="text-xs mt-1" style={{ color: 'var(--color-gray-text)' }}>{nota}</p>}
+      {nota && <p className="text-xs mt-1" style={{ color: corNota ?? 'var(--color-gray-text)' }}>{nota}</p>}
     </motion.div>
   )
 }
@@ -189,7 +207,10 @@ export default function ReportsPage() {
 
           <motion.div initial="initial" animate="animate" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <CartaoMetrica icone={Users} rotulo="Seguidores" valor={numero(dados.totais.seguidores)}
-              nota={`somando ${dados.totais.redesComDados} de ${dados.totais.redesConectadas} rede(s)`} />
+              nota={dados.totais.redesComCrescimento > 0
+                ? `${variacao(dados.totais.crescimentoSeguidores)} em ${dias} dias · ${dados.totais.redesComDados} de ${dados.totais.redesConectadas} rede(s)`
+                : `somando ${dados.totais.redesComDados} de ${dados.totais.redesConectadas} rede(s)`}
+              corNota={dados.totais.redesComCrescimento > 0 ? corDaVariacao(dados.totais.crescimentoSeguidores) : undefined} />
             <CartaoMetrica icone={Eye} rotulo="Visualizações" valor={numero(dados.totais.visualizacoes)}
               nota="YouTube — total do canal" />
             <CartaoMetrica icone={FileText} rotulo="Publicações nas redes" valor={numero(dados.totais.publicacoes)} />
@@ -308,13 +329,31 @@ export default function ReportsPage() {
                     </span>
                     <span className="text-xs truncate" style={{ color: 'var(--color-gray-text)' }}>{c.profileName}</span>
                     {c.ok && (
-                      <span className="text-xs ml-auto">
-                        {numero(c.seguidores)} seguidores
-                        {c.publicacoes !== undefined && ` · ${numero(c.publicacoes)} publicações`}
-                        {c.visualizacoes !== undefined && ` · ${numero(c.visualizacoes)} views`}
+                      <span className="text-xs ml-auto flex items-center gap-2 flex-wrap justify-end">
+                        <span>
+                          {numero(c.seguidores)} seguidores
+                          {c.publicacoes !== undefined && ` · ${numero(c.publicacoes)} publicações`}
+                          {c.visualizacoes !== undefined && ` · ${numero(c.visualizacoes)} views`}
+                        </span>
+                        {c.crescimento?.seguidores !== null && c.crescimento?.seguidores !== undefined && (
+                          <span className="px-2 py-0.5 rounded-full font-medium"
+                            style={{ background: 'var(--color-gray-light)', color: corDaVariacao(c.crescimento.seguidores) }}
+                            title={c.crescimento.daRede
+                              ? `Dado da própria rede, últimos ${dias} dias`
+                              : `Comparado ao nosso primeiro registro (${c.crescimento.desde})`}>
+                            {variacao(c.crescimento.seguidores)} seguidores
+                            {c.crescimento.visualizacoes ? ` · ${variacao(c.crescimento.visualizacoes)} views` : ''}
+                          </span>
+                        )}
                       </span>
                     )}
                   </div>
+                  {c.ok && c.crescimento?.seguidores === null && (
+                    <p className="text-xs mt-1.5" style={{ color: 'var(--color-gray-text)' }}>
+                      Sem base de comparação ainda — esta rede só responde o número de agora, e o
+                      primeiro registro é de hoje. A variação aparece a partir de amanhã.
+                    </p>
+                  )}
                   {!c.ok && <p className="text-xs mt-1.5" style={{ color: '#B91C1C' }}><ComLinks texto={c.motivo ?? ''} /></p>}
                   {c.limitacao && (
                     <p className="text-xs mt-1.5" style={{ color: 'var(--color-gray-text)' }}>

@@ -25,6 +25,15 @@ export type MetricasConta = {
   comentarios?: number
   /** O que esta rede ainda não entrega e por quê. */
   limitacao?: string
+  /** Variação no período. Null quando ainda não há base de comparação. */
+  crescimento?: {
+    seguidores: number | null
+    visualizacoes: number | null
+    /** Desde quando temos medição desta conta — sem isso "+0" é ambíguo. */
+    desde: string | null
+    /** true quando veio da própria rede, não do nosso histórico. */
+    daRede: boolean
+  }
   /** Só YouTube: vem da Analytics API, que é o único que devolve o passado. */
   analytics?: {
     minutosAssistidos: number
@@ -236,6 +245,55 @@ async function tiktok(conta: {
   }
 }
 
+/**
+ * Variação no período, por conta.
+ *
+ * Instagram, Facebook e TikTok só respondem "agora": a única forma de saber
+ * quanto cresceu é comparar com o retrato que guardamos antes. Enquanto não
+ * houver um retrato anterior, devolvemos null — e a tela diz "sem base de
+ * comparação" em vez de mostrar "+0", que pareceria estagnação medida.
+ */
+async function calcularCrescimento(metricas: MetricasConta[], dias: number): Promise<MetricasConta[]> {
+  const desde = new Date(Date.now() - dias * 86400000)
+
+  return Promise.all(metricas.map(async m => {
+    if (!m.ok) return m
+
+    // o YouTube sabe o próprio passado: usar o dado dele é mais exato que a
+    // diferença entre dois retratos nossos
+    if (m.analytics) {
+      return {
+        ...m,
+        crescimento: {
+          seguidores: m.analytics.inscritosGanhos - m.analytics.inscritosPerdidos,
+          visualizacoes: m.analytics.porDia.reduce((s, d) => s + d.views, 0),
+          desde: m.analytics.porDia[0]?.data ?? null,
+          daRede: true,
+        },
+      }
+    }
+
+    const primeiro = await prisma.metric.findFirst({
+      where: { socialAccountId: m.accountId, date: { gte: desde } },
+      orderBy: { date: 'asc' },
+    })
+
+    // um retrato só (o de hoje) não é base de comparação: a diferença daria
+    // zero e pareceria "não cresceu", quando o certo é "ainda não medimos"
+    const temBase = primeiro && primeiro.date < new Date(new Date().setHours(0, 0, 0, 0))
+
+    return {
+      ...m,
+      crescimento: {
+        seguidores: temBase ? (m.seguidores ?? 0) - primeiro.followers : null,
+        visualizacoes: temBase ? (m.visualizacoes ?? 0) - primeiro.videoViews : null,
+        desde: primeiro ? primeiro.date.toISOString().slice(0, 10) : null,
+        daRede: false,
+      },
+    }
+  }))
+}
+
 /** Coleta tudo em paralelo; uma rede fora do ar não derruba as outras. */
 export async function coletarInsights(projectId: string, dias = 30): Promise<MetricasConta[]> {
   const contas = await prisma.socialAccount.findMany({
@@ -243,7 +301,7 @@ export async function coletarInsights(projectId: string, dias = 30): Promise<Met
     select: { id: true, provider: true, profileId: true, profileName: true, accessToken: true, refreshToken: true, expiresAt: true },
   })
 
-  return Promise.all(contas.map(c => {
+  const metricas = await Promise.all(contas.map(c => {
     switch (c.provider) {
       case 'INSTAGRAM': return instagram(c)
       case 'FACEBOOK': return facebook(c)
@@ -260,6 +318,8 @@ export async function coletarInsights(projectId: string, dias = 30): Promise<Met
       })
     }
   }))
+
+  return calcularCrescimento(metricas, dias)
 }
 
 /**
