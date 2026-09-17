@@ -19,6 +19,7 @@ import musicRoutes from './routes/music.routes'
 import canvaRoutes from './routes/canva.routes'
 import acessosRoutes from './routes/acessos.routes'
 import mediaRoutes from './routes/media.routes'
+import reportsRoutes from './routes/reports.routes'
 import { startPublishWorker } from './workers/publish.worker'
 
 const app = express()
@@ -40,6 +41,7 @@ app.use(limiter)
 app.use('/api/auth', authRoutes)
 app.use('/api/acessos', acessosRoutes)
 app.use('/api/media', mediaRoutes)
+app.use('/api/reports', reportsRoutes)
 app.use('/api/projects', projectsRoutes)
 app.use('/api/posts', postsRoutes)
 app.use('/api/approvals', approvalsRoutes)

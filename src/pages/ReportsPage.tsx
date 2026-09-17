@@ -1,238 +1,247 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'motion/react'
 import { pageVariants, cardVariants } from '@/lib/motionVariants'
-import { BarChart3, TrendingUp, Users, Eye, Download, ArrowUpRight } from 'lucide-react'
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell,
-} from 'recharts'
+import { Users, Eye, FileText, Send, AlertTriangle, Loader2, Info } from 'lucide-react'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { NETWORK_LABELS, NETWORK_COLORS } from '@/lib/constants'
+import { useProjectStore } from '@/store/projectStore'
+import { useAuthStore } from '@/store/authStore'
+import { api } from '@/lib/api'
+import type { SocialNetwork } from '@/types'
 
-const reachData = [
-  { date: '01/06', reach: 1200, impressions: 3400, followers: 4200 },
-  { date: '08/06', reach: 1800, impressions: 4100, followers: 4350 },
-  { date: '15/06', reach: 2400, impressions: 5800, followers: 4500 },
-  { date: '22/06', reach: 2100, impressions: 5200, followers: 4620 },
-  { date: '29/06', reach: 3100, impressions: 7200, followers: 4800 },
+type Conta = {
+  accountId: string
+  provider: string
+  profileName: string
+  ok: boolean
+  motivo?: string
+  seguidores?: number
+  publicacoes?: number
+  visualizacoes?: number
+  curtidas?: number
+  limitacao?: string
+}
+
+type Relatorio = {
+  contas: Conta[]
+  serie: { data: string; provider: string; seguidores: number; visualizacoes: number; curtidas: number }[]
+  publicados: { id: string; title: string; networks: string[]; publishedAt: string; format: string }[]
+  totais: {
+    seguidores: number; publicacoes: number; visualizacoes: number
+    publicadosPeloSistema: number; redesComDados: number; redesConectadas: number
+  }
+}
+
+const PERIODOS = [
+  { dias: 7, rotulo: '7 dias' },
+  { dias: 30, rotulo: '30 dias' },
+  { dias: 90, rotulo: '90 dias' },
 ]
 
-const engagementData = [
-  { type: 'Likes', value: 432 },
-  { type: 'Comentários', value: 87 },
-  { type: 'Salvamentos', value: 210 },
-  { type: 'Compartilhamentos', value: 56 },
-]
+function numero(n?: number) {
+  if (n === undefined) return '—'
+  return n >= 1000 ? `${(n / 1000).toFixed(1).replace('.0', '')}k` : String(n)
+}
 
-const networkData = [
-  { name: 'Instagram', followers: 8200, engagement: '4.8%', label: 'IG', color: '#E1306C', posts: 18 },
-  { name: 'YouTube', followers: 3100, engagement: '3.1%', label: 'YT', color: '#FF0000', posts: 6 },
-  { name: 'TikTok', followers: 2200, engagement: '6.2%', label: 'TK', color: '#010101', posts: 4 },
-]
-
-const topPosts = [
-  { title: 'Rotina matinal de autocuidado', reach: '3.2k', engagement: '8.4%', network: 'Instagram', color: '#E1306C' },
-  { title: 'Os 5 erros na dieta que ninguém conta', reach: '2.7k', engagement: '7.1%', network: 'Instagram', color: '#E1306C' },
-  { title: 'Como montar uma semana produtiva', reach: '1.9k', engagement: '5.8%', network: 'YouTube', color: '#FF0000' },
-]
-
-const PERIODS = ['Semana', 'Mês', 'Trimestre', 'Ano'] as const
-type Period = typeof PERIODS[number]
-
-function MetricCard({
-  label, value, icon: Icon, change, color,
-}: {
-  label: string; value: string; icon: React.ElementType; change: string; color: string
+function CartaoMetrica({ icone: Icone, rotulo, valor, nota }: {
+  icone: React.ElementType; rotulo: string; valor: string; nota?: string
 }) {
-  const positive = change.startsWith('+')
   return (
-    <motion.div
-      variants={cardVariants}
-      className="rounded-2xl p-5 relative overflow-hidden"
-      style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}
-    >
-      {/* Accent bar */}
-      <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-2xl" style={{ background: color }} />
-
-      <div className="flex items-start justify-between mb-3">
-        <p className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--color-gray-text)' }}>{label}</p>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: color + '18' }}>
-          <Icon size={16} style={{ color }} />
-        </div>
+    <motion.div variants={cardVariants} className="rounded-2xl p-5"
+      style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
+      <div className="flex items-center gap-2 mb-2" style={{ color: 'var(--color-gray-text)' }}>
+        <Icone size={15} />
+        <span className="text-xs">{rotulo}</span>
       </div>
-
-      <p className="font-heading font-bold text-2xl mb-1">{value}</p>
-
-      <div className="flex items-center gap-1">
-        <ArrowUpRight size={12} style={{ color: positive ? '#10B981' : '#EF4444', transform: positive ? 'none' : 'scaleY(-1)' }} />
-        <p className="text-xs font-medium" style={{ color: positive ? '#10B981' : '#EF4444' }}>{change}</p>
-      </div>
+      <p className="font-heading font-bold text-2xl">{valor}</p>
+      {nota && <p className="text-xs mt-1" style={{ color: 'var(--color-gray-text)' }}>{nota}</p>}
     </motion.div>
   )
 }
 
 export default function ReportsPage() {
-  const [period, setPeriod] = useState<Period>('Mês')
+  const { activeProject } = useProjectStore()
+  const { token } = useAuthStore()
+  const [dias, setDias] = useState(30)
+  const [dados, setDados] = useState<Relatorio | null>(null)
+  const [carregando, setCarregando] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const ehDemo = !token || token.startsWith('demo-token')
+
+  const carregar = useCallback(async () => {
+    if (ehDemo || !activeProject?.id) { setCarregando(false); return }
+    setCarregando(true)
+    try {
+      const r = await api.get<Relatorio>(`/reports?projectId=${activeProject.id}&dias=${dias}`)
+      setDados(r)
+      setErro(null)
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao carregar os relatórios')
+    } finally {
+      setCarregando(false)
+    }
+  }, [ehDemo, activeProject?.id, dias])
+
+  useEffect(() => { void carregar() }, [carregar])
+
+  // uma linha por dia, somando as redes — a série vem do que foi guardado,
+  // porque as APIs só respondem "agora" e não o passado
+  const grafico = Object.values(
+    (dados?.serie ?? []).reduce((acc, p) => {
+      acc[p.data] ??= { data: p.data.slice(8) + '/' + p.data.slice(5, 7), seguidores: 0, visualizacoes: 0 }
+      acc[p.data]!.seguidores += p.seguidores
+      acc[p.data]!.visualizacoes += p.visualizacoes
+      return acc
+    }, {} as Record<string, { data: string; seguidores: number; visualizacoes: number }>)
+  )
+
+  const semDados = dados?.contas.filter(c => !c.ok) ?? []
+  const comLimitacao = dados?.contas.filter(c => c.ok && c.limitacao) ?? []
 
   return (
     <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h1 className="font-heading font-bold text-2xl">Relatórios</h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--color-gray-text)' }}>Junho 2025 · Todos os projetos</p>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--color-gray-text)' }}>
+            {activeProject?.name ?? 'Nenhum projeto'} · dados das redes conectadas
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          {/* Period selector */}
-          <div className="flex rounded-xl overflow-hidden border" style={{ borderColor: 'var(--color-gray-border)' }}>
-            {PERIODS.map(p => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className="px-3 py-1.5 text-xs cursor-pointer transition-colors"
-                style={{
-                  background: period === p ? 'var(--color-wine)' : 'white',
-                  color: period === p ? 'white' : 'var(--color-gray-text)',
-                }}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-          <button
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm cursor-pointer transition-colors hover:bg-gray-50"
-            style={{ borderColor: 'var(--color-gray-border)' }}
-          >
-            <Download size={14} style={{ color: 'var(--color-gray-text)' }} /> Exportar PDF
-          </button>
+        <div className="flex gap-1.5">
+          {PERIODOS.map(p => (
+            <button key={p.dias} onClick={() => setDias(p.dias)}
+              className="px-3 py-1.5 rounded-full text-xs cursor-pointer border transition-colors"
+              style={{
+                borderColor: dias === p.dias ? 'var(--color-wine)' : 'var(--color-gray-border)',
+                background: dias === p.dias ? 'var(--color-wine-subtle)' : 'transparent',
+                color: dias === p.dias ? 'var(--color-wine)' : 'inherit',
+              }}>
+              {p.rotulo}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Metric cards */}
-      <motion.div
-        variants={{ animate: { transition: { staggerChildren: 0.07 } } }}
-        initial="initial"
-        animate="animate"
-        className="grid grid-cols-4 gap-4"
-      >
-        <MetricCard label="Alcance total" value="9.6k" icon={Eye} change="+14% vs. mês anterior" color="#6B2D3E" />
-        <MetricCard label="Seguidores" value="13.5k" icon={Users} change="+8% vs. mês anterior" color="#3B82F6" />
-        <MetricCard label="Engajamento" value="4.2%" icon={TrendingUp} change="+0.3pp vs. mês anterior" color="#10B981" />
-        <MetricCard label="Posts publicados" value="28" icon={BarChart3} change="+4 vs. mês anterior" color="#F59E0B" />
-      </motion.div>
+      {ehDemo && (
+        <div className="p-4 rounded-2xl flex items-start gap-2.5" style={{ background: '#FEF3C7', color: '#92400E' }}>
+          <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+          <p className="text-sm">Sem conexão com o servidor — não há métricas para mostrar.</p>
+        </div>
+      )}
 
-      {/* Charts row */}
-      <div className="grid grid-cols-3 gap-5">
-        {/* Area chart */}
-        <div className="col-span-2 rounded-2xl p-5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="font-heading font-semibold text-base">Alcance e Impressões</h2>
-            <div className="flex items-center gap-4 text-xs" style={{ color: 'var(--color-gray-text)' }}>
-              <span className="flex items-center gap-1.5">
-                <span className="w-3 h-0.5 rounded inline-block" style={{ background: 'var(--color-wine)' }} />
-                Alcance
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-3 h-0.5 rounded inline-block" style={{ background: 'var(--color-wine-light)', borderTop: '1px dashed' }} />
-                Impressões
-              </span>
+      {erro && (
+        <div className="p-4 rounded-2xl text-sm" style={{ background: '#FEF2F2', color: '#B91C1C' }}>{erro}</div>
+      )}
+
+      {carregando ? (
+        <div className="flex items-center gap-2 text-sm py-10" style={{ color: 'var(--color-gray-text)' }}>
+          <Loader2 size={16} className="animate-spin" /> Consultando as redes…
+        </div>
+      ) : dados ? (
+        <>
+          {dados.totais.redesConectadas === 0 && (
+            <div className="p-4 rounded-2xl text-sm" style={{ background: 'var(--color-gray-light)', color: 'var(--color-gray-text)' }}>
+              Nenhuma rede conectada neste projeto. Conecte em Configurações → Redes sociais.
+            </div>
+          )}
+
+          <motion.div initial="initial" animate="animate" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <CartaoMetrica icone={Users} rotulo="Seguidores" valor={numero(dados.totais.seguidores)}
+              nota={`somando ${dados.totais.redesComDados} de ${dados.totais.redesConectadas} rede(s)`} />
+            <CartaoMetrica icone={Eye} rotulo="Visualizações" valor={numero(dados.totais.visualizacoes)}
+              nota="YouTube — total do canal" />
+            <CartaoMetrica icone={FileText} rotulo="Publicações nas redes" valor={numero(dados.totais.publicacoes)} />
+            <CartaoMetrica icone={Send} rotulo={`Publicados pelo sistema (${dias}d)`}
+              valor={String(dados.totais.publicadosPeloSistema)} />
+          </motion.div>
+
+          {/* Só mostramos gráfico quando há mais de um dia guardado: uma linha
+              reta de um ponto só sugeriria estabilidade que ninguém mediu. */}
+          {grafico.length > 1 ? (
+            <div className="rounded-2xl p-5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
+              <h2 className="font-heading font-semibold text-base mb-4">Evolução</h2>
+              <ResponsiveContainer width="100%" height={240}>
+                <AreaChart data={grafico}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-gray-border)" />
+                  <XAxis dataKey="data" fontSize={11} stroke="var(--color-gray-text)" />
+                  <YAxis fontSize={11} stroke="var(--color-gray-text)" />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="seguidores" stroke="var(--color-wine)" fill="var(--color-wine-subtle)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : dados.totais.redesComDados > 0 && (
+            <div className="rounded-2xl p-5 flex items-start gap-2.5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
+              <Info size={16} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--color-gray-text)' }} />
+              <p className="text-sm" style={{ color: 'var(--color-gray-text)' }}>
+                O gráfico de evolução aparece a partir do segundo dia. As redes só respondem o número de
+                agora — o histórico é guardado por nós a cada consulta.
+              </p>
+            </div>
+          )}
+
+          <div className="rounded-2xl p-5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
+            <h2 className="font-heading font-semibold text-base mb-4">Por rede</h2>
+            <div className="space-y-2">
+              {dados.contas.map(c => (
+                <div key={c.accountId} className="p-3 rounded-xl" style={{ background: 'var(--color-gray-light)' }}>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      style={{ background: NETWORK_COLORS[c.provider as SocialNetwork] ?? '#999' }} />
+                    <span className="text-sm font-medium">
+                      {NETWORK_LABELS[c.provider as SocialNetwork] ?? c.provider}
+                    </span>
+                    <span className="text-xs truncate" style={{ color: 'var(--color-gray-text)' }}>{c.profileName}</span>
+                    {c.ok && (
+                      <span className="text-xs ml-auto">
+                        {numero(c.seguidores)} seguidores
+                        {c.publicacoes !== undefined && ` · ${numero(c.publicacoes)} publicações`}
+                        {c.visualizacoes !== undefined && ` · ${numero(c.visualizacoes)} views`}
+                      </span>
+                    )}
+                  </div>
+                  {!c.ok && <p className="text-xs mt-1.5" style={{ color: '#B91C1C' }}>{c.motivo}</p>}
+                  {c.limitacao && <p className="text-xs mt-1.5" style={{ color: 'var(--color-gray-text)' }}>{c.limitacao}</p>}
+                </div>
+              ))}
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={reachData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
-              <defs>
-                <linearGradient id="gradReach" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6B2D3E" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#6B2D3E" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0EAE2" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-              <Tooltip
-                contentStyle={{ borderRadius: 10, fontSize: 12, border: '1px solid #E8E2DA', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
-                cursor={{ stroke: '#6B2D3E', strokeWidth: 1, strokeDasharray: '4 2' }}
-              />
-              <Area type="monotone" dataKey="reach" stroke="#6B2D3E" fill="url(#gradReach)" strokeWidth={2} name="Alcance" dot={false} />
-              <Area type="monotone" dataKey="impressions" stroke="#C4697A" fill="transparent" strokeWidth={1.5} strokeDasharray="4 2" name="Impressões" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
 
-        {/* Bar chart */}
-        <div className="rounded-2xl p-5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
-          <h2 className="font-heading font-semibold text-base mb-5">Engajamento por tipo</h2>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={engagementData} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F0EAE2" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="type" tick={{ fontSize: 11, fill: '#5C5C5C' }} width={96} axisLine={false} tickLine={false} />
-              <Tooltip
-                contentStyle={{ borderRadius: 10, fontSize: 12, border: '1px solid #E8E2DA' }}
-                cursor={{ fill: 'rgba(107,45,62,0.04)' }}
-              />
-              <Bar dataKey="value" radius={[0, 6, 6, 0]} name="Total">
-                {engagementData.map((_, i) => (
-                  <Cell key={i} fill={i === 0 ? '#6B2D3E' : i === 1 ? '#8B3A4E' : i === 2 ? '#C4697A' : '#E8A4AD'} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+          {(semDados.length > 0 || comLimitacao.length > 0) && (
+            <div className="p-4 rounded-2xl flex items-start gap-2.5" style={{ background: '#FEF3C7', color: '#92400E' }}>
+              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+              <p className="text-sm">
+                Este relatório está <strong>incompleto</strong>: {semDados.length > 0 && `${semDados.length} rede(s) não responderam`}
+                {semDados.length > 0 && comLimitacao.length > 0 && ' e '}
+                {comLimitacao.length > 0 && `${comLimitacao.length} têm métricas limitadas`}.
+                Os motivos estão em cada rede acima. Não complete o que falta por estimativa ao apresentar a um cliente.
+              </p>
+            </div>
+          )}
 
-      {/* Bottom row */}
-      <div className="grid grid-cols-3 gap-5">
-        {/* By network */}
-        <div className="col-span-2 rounded-2xl p-5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
-          <h2 className="font-heading font-semibold text-base mb-4">Desempenho por rede</h2>
-          <div className="space-y-3">
-            {networkData.map(n => (
-              <div key={n.name} className="flex items-center gap-4 p-3 rounded-xl"
-                style={{ background: 'var(--color-gray-light)' }}>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: n.color + '18' }}>
-                  <span className="text-xs font-bold" style={{ color: n.color }}>{n.label}</span>
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{n.name}</p>
-                  <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>{n.posts} posts publicados</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold">{n.followers.toLocaleString('pt-BR')}</p>
-                  <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>seguidores</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold" style={{ color: '#10B981' }}>{n.engagement}</p>
-                  <p className="text-xs" style={{ color: 'var(--color-gray-text)' }}>engajamento</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Top posts */}
-        <div className="rounded-2xl p-5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
-          <h2 className="font-heading font-semibold text-base mb-4">Top posts</h2>
-          <div className="space-y-3">
-            {topPosts.map((p, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <div
-                  className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5"
-                  style={{ background: p.color }}
-                >
-                  {i + 1}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium leading-snug truncate">{p.title}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs" style={{ color: 'var(--color-gray-text)' }}>{p.reach} alcance</span>
-                    <span className="text-xs font-medium" style={{ color: '#10B981' }}>{p.engagement}</span>
+          {dados.publicados.length > 0 && (
+            <div className="rounded-2xl p-5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
+              <h2 className="font-heading font-semibold text-base mb-1">Publicados pelo sistema</h2>
+              <p className="text-xs mb-4" style={{ color: 'var(--color-gray-text)' }}>
+                Estes saíram daqui. O desempenho de cada um depende das permissões de métrica por post.
+              </p>
+              <div className="space-y-1.5">
+                {dados.publicados.slice(0, 10).map(p => (
+                  <div key={p.id} className="flex items-center gap-2 text-sm py-1.5">
+                    <span className="flex-1 truncate">{p.title}</span>
+                    <span className="text-xs flex-shrink-0" style={{ color: 'var(--color-gray-text)' }}>
+                      {p.networks.map(n => NETWORK_LABELS[n as SocialNetwork] ?? n).join(', ')}
+                      {' · '}
+                      {new Date(p.publishedAt).toLocaleDateString('pt-BR')}
+                    </span>
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
+            </div>
+          )}
+        </>
+      ) : null}
     </motion.div>
   )
 }
