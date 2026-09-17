@@ -31,6 +31,25 @@ type Conta = {
   }
 }
 
+/**
+ * Erros de API costumam trazer o link exato da solução — o do YouTube Analytics
+ * manda direto para a tela de ativação no Google Cloud. Como texto puro, obriga
+ * a copiar à mão; como link, resolve em um toque.
+ */
+function ComLinks({ texto }: { texto: string }) {
+  const partes = texto.split(/(https?:\/\/[^\s)]+)/g)
+  return (
+    <>
+      {partes.map((parte, i) =>
+        /^https?:\/\//.test(parte)
+          ? <a key={i} href={parte} target="_blank" rel="noopener noreferrer"
+              className="underline break-all" style={{ color: 'inherit' }}>{parte}</a>
+          : <span key={i}>{parte}</span>
+      )}
+    </>
+  )
+}
+
 function duracao(segundos: number) {
   const m = Math.floor(segundos / 60)
   const s = Math.round(segundos % 60)
@@ -294,8 +313,12 @@ export default function ReportsPage() {
                       </span>
                     )}
                   </div>
-                  {!c.ok && <p className="text-xs mt-1.5" style={{ color: '#B91C1C' }}>{c.motivo}</p>}
-                  {c.limitacao && <p className="text-xs mt-1.5" style={{ color: 'var(--color-gray-text)' }}>{c.limitacao}</p>}
+                  {!c.ok && <p className="text-xs mt-1.5" style={{ color: '#B91C1C' }}><ComLinks texto={c.motivo ?? ''} /></p>}
+                  {c.limitacao && (
+                    <p className="text-xs mt-1.5" style={{ color: 'var(--color-gray-text)' }}>
+                      <ComLinks texto={c.limitacao} />
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
