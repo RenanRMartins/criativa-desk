@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream'
 import { google } from 'googleapis'
 import { prisma } from '../lib/prisma'
+import { tokenTiktokValido } from './tiktok-token.service'
 
 // Versão da API do LinkedIn no formato YYYYMM exigido no header LinkedIn-Version
 const LINKEDIN_VERSION = '202608'
@@ -487,6 +488,18 @@ function planTiktokChunks(size: number) {
 async function publishTiktok(account: PublishAccount, post: PublishPost) {
   const video = sortedMedia(post).find(m => m.type === 'VIDEO')
   if (!video) throw new Error('TikTok exige um vídeo anexado ao post')
+
+  // o token do TikTok vale 24h: sem renovar, a conta publicava no dia da
+  // conexão e falhava no seguinte com "access_token_invalid"
+  const conta = await prisma.socialAccount.findUnique({
+    where: { id: account.id },
+    select: { id: true, accessToken: true, refreshToken: true, expiresAt: true },
+  })
+  if (conta) {
+    const { token, erro } = await tokenTiktokValido(conta)
+    if (erro) throw new Error(erro)
+    account = { ...account, accessToken: token }
+  }
 
   const download = await fetchTranscoded(mp4Url(video.url))
   const mimeType = download.headers.get('content-type') ?? 'video/mp4'

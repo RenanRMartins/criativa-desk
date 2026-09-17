@@ -1,5 +1,6 @@
 import { google } from 'googleapis'
 import { prisma } from '../lib/prisma'
+import { tokenTiktokValido } from './tiktok-token.service'
 
 const GRAPH = 'https://graph.facebook.com/v21.0'
 
@@ -74,7 +75,13 @@ async function facebook(conta: { id: string; profileId: string; accessToken: str
   if (!r.ok) return { ...base, ok: false, motivo: motivoMeta(r.texto, `Facebook recusou a consulta (HTTP ${r.status})`) }
 
   const p = r.json as { fan_count?: number; followers_count?: number }
-  return { ...base, ok: true, seguidores: p.followers_count ?? p.fan_count ?? 0 }
+  const seguidores = p.followers_count ?? p.fan_count
+  // "0" e "o campo não veio" aparecem iguais na tela e são coisas diferentes:
+  // sem o número, dizemos isso em vez de exibir zero como se fosse medição
+  if (seguidores === undefined) {
+    return { ...base, ok: false, motivo: 'A Página não devolveu a contagem de seguidores — verifique se o token tem pages_read_engagement.' }
+  }
+  return { ...base, ok: true, seguidores }
 }
 
 async function youtube(conta: { id: string; accessToken: string; refreshToken: string | null; profileName: string }): Promise<MetricasConta> {
@@ -109,21 +116,24 @@ async function youtube(conta: { id: string; accessToken: string; refreshToken: s
   }
 }
 
-async function tiktok(conta: { id: string; accessToken: string; profileName: string }): Promise<MetricasConta> {
+async function tiktok(conta: {
+  id: string; accessToken: string; refreshToken: string | null; expiresAt: Date | null; profileName: string
+}): Promise<MetricasConta> {
   const base = { accountId: conta.id, provider: 'TIKTOK', profileName: conta.profileName }
   try {
+    const { token, erro: erroToken } = await tokenTiktokValido(conta)
+    if (erroToken) return { ...base, ok: false, motivo: erroToken }
+
     const res = await fetch(
       'https://open.tiktokapis.com/v2/user/info/?fields=follower_count,likes_count,video_count',
-      { headers: { Authorization: `Bearer ${conta.accessToken}` } },
+      { headers: { Authorization: `Bearer ${token}` } },
     )
     const texto = await res.text()
     if (!res.ok) {
-      // o escopo user.info.stats não está no nosso app: dizer isso é mais útil
-      // que devolver zero, que pareceria "a conta não tem seguidores"
-      return {
-        ...base, ok: false,
-        motivo: `O TikTok recusou a consulta (HTTP ${res.status}). As métricas exigem o escopo user.info.stats, que ainda não está aprovado no nosso app. ${texto.slice(0, 150)}`,
-      }
+      // Relatar o que o TikTok disse, sem embutir explicação. A versão anterior
+      // afirmava "falta o escopo user.info.stats" e o erro real era token
+      // expirado — a mensagem mandava procurar no lugar errado.
+      return { ...base, ok: false, motivo: `O TikTok recusou a consulta (HTTP ${res.status}): ${texto.slice(0, 250)}` }
     }
     const d = (JSON.parse(texto) as { data?: { user?: Record<string, number> } }).data?.user ?? {}
     return {
@@ -141,7 +151,7 @@ async function tiktok(conta: { id: string; accessToken: string; profileName: str
 export async function coletarInsights(projectId: string): Promise<MetricasConta[]> {
   const contas = await prisma.socialAccount.findMany({
     where: { projectId, status: 'CONNECTED' },
-    select: { id: true, provider: true, profileId: true, profileName: true, accessToken: true, refreshToken: true },
+    select: { id: true, provider: true, profileId: true, profileName: true, accessToken: true, refreshToken: true, expiresAt: true },
   })
 
   return Promise.all(contas.map(c => {

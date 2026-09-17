@@ -488,10 +488,17 @@ router.get('/clip/callback', async (req: Request, res: Response) => {
     const profileData = await profileRes.json() as Record<string, unknown>
     const profile = (profileData.data as Record<string, unknown>)?.user as Record<string, string> ?? {}
 
+    // o token do TikTok vale 24h: sem guardar o refresh, a conta parava de
+    // publicar no dia seguinte e ninguém sabia por quê
+    const refreshTiktok = tokenData.refresh_token as string | undefined
+    const validadeTiktok = Number(tokenData.expires_in ?? 0)
+
     await saveSocialAccount({
       projectId,
       provider: 'TIKTOK',
       accessToken: String(accessToken),
+      refreshToken: refreshTiktok,
+      expiresAt: validadeTiktok ? new Date(Date.now() + validadeTiktok * 1000) : undefined,
       profileId: profile.open_id ?? userId,
       profileName: profile.display_name ?? 'TikTok',
       profileAvatar: profile.avatar_url,
