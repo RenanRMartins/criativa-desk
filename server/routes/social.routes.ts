@@ -452,7 +452,10 @@ router.get('/tiktok/auth-url', authMiddleware, (req: AuthRequest, res: Response)
     client_key: process.env['TT_KEY'] ?? '',
     response_type: 'code',
     // video.publish depende da aprovação do app no painel do TikTok
-    scope: 'user.info.basic,video.publish',
+    // user.info.stats traz seguidores e curtidas para os Relatórios.
+    // Precisa estar habilitado no painel do TikTok também: pedir aqui um
+    // escopo que o app não tem devolve scope_not_authorized.
+    scope: 'user.info.basic,user.info.stats,video.publish',
     redirect_uri: TT_REDIRECT,
     state,
   })

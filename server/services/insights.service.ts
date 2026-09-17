@@ -162,7 +162,12 @@ export async function coletarInsights(projectId: string): Promise<MetricasConta[
       case 'TIKTOK': return tiktok(c)
       default: return Promise.resolve<MetricasConta>({
         accountId: c.id, provider: c.provider, profileName: c.profileName,
-        ok: false, motivo: `Métricas ainda não implementadas para ${c.provider}.`,
+        ok: false,
+        motivo: c.provider === 'LINKEDIN'
+          // não é falta de implementação: a API do LinkedIn não expõe métricas
+          // de perfil pessoal, só de Página de empresa
+          ? 'O LinkedIn não expõe métricas de perfil pessoal pela API — só Páginas de empresa têm estatísticas.'
+          : `Métricas ainda não implementadas para ${c.provider}.`,
       })
     }
   }))
