@@ -227,7 +227,9 @@ export default function ReportsPage() {
             <div className="rounded-2xl p-5" style={{ background: 'white', boxShadow: 'var(--shadow-card)' }}>
               <h2 className="font-heading font-semibold text-base mb-1">YouTube — desempenho</h2>
               <p className="text-xs mb-4" style={{ color: 'var(--color-gray-text)' }}>
-                Últimos {dias} dias. Estes são dados históricos da própria rede, não o retrato de hoje.
+                Últimos {dias} dias, direto da rede — dados históricos, não o retrato de hoje.
+                O YouTube leva cerca de <strong>dois dias</strong> para fechar os números, então o fim do
+                gráfico costuma parar antes de ontem. Não é queda de audiência.
               </p>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-5">
