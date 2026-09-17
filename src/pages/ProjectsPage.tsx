@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { pageVariants } from '@/lib/motionVariants'
 import { useNavigate } from 'react-router-dom'
+import { api } from '@/lib/api'
 import { motion, AnimatePresence } from 'motion/react'
-import { Plus, MoreHorizontal, Users, FileText, Folder } from 'lucide-react'
+import { Plus, MoreHorizontal, Users, FileText, Folder, Pencil, Archive } from 'lucide-react'
 import { useProjects } from '@/hooks/useProjects'
 import { getInitials, truncate } from '@/lib/utils'
 import type { Project } from '@/types'
@@ -10,7 +11,21 @@ import type { Project } from '@/types'
 const container = { animate: { transition: { staggerChildren: 0.06 } } }
 const card = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0, transition: { duration: 0.2 } } }
 
-function ProjectCard({ project, onArquivar }: { project: Project; onArquivar?: (p: Project) => void }) {
+function ProjectCard({ project, onArquivar, onEditar }: {
+  project: Project
+  onArquivar?: (p: Project) => void
+  onEditar?: (p: Project) => void
+}) {
+  const [menuAberto, setMenuAberto] = useState(false)
+
+  // fecha ao tocar fora — em tablet não há "clicar fora" com o mouse
+  useEffect(() => {
+    if (!menuAberto) return
+    const fechar = () => setMenuAberto(false)
+    document.addEventListener('click', fechar)
+    return () => document.removeEventListener('click', fechar)
+  }, [menuAberto])
+
   const navigate = useNavigate()
   const { setActiveProject } = useProjects()
 
@@ -58,14 +73,35 @@ function ProjectCard({ project, onArquivar }: { project: Project; onArquivar?: (
 
         {/* era opacity-0 até o hover: em tablet, onde não existe hover, o botão
             ficava invisível. Agora some só onde há mouse de verdade. */}
-        <button
-          className="absolute top-3 right-3 p-1.5 rounded-lg transition-opacity cursor-pointer z-10 [@media(pointer:fine)]:opacity-0 group-hover:opacity-100"
-          style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(4px)' }}
-          onClick={e => { e.stopPropagation(); onArquivar?.(project) }}
-          title="Arquivar projeto"
-        >
-          <MoreHorizontal size={14} color="white" />
-        </button>
+        <div className="absolute top-3 right-3 z-20" onClick={e => e.stopPropagation()}>
+          {/* era opacity-0 até o hover: em tablet, onde não existe hover, o
+              botão ficava invisível. Agora some só onde há mouse de verdade. */}
+          <button
+            className="p-1.5 rounded-lg transition-opacity cursor-pointer [@media(pointer:fine)]:opacity-0 group-hover:opacity-100"
+            style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(4px)' }}
+            onClick={e => { e.stopPropagation(); setMenuAberto(v => !v) }}
+            title="Opções do projeto"
+          >
+            <MoreHorizontal size={14} color="white" />
+          </button>
+
+          {menuAberto && (
+            <div className="absolute right-0 mt-1 w-44 rounded-xl overflow-hidden shadow-lg"
+              style={{ background: 'white', border: '1px solid var(--color-gray-border)' }}>
+              <button
+                onClick={() => { setMenuAberto(false); onEditar?.(project) }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left cursor-pointer hover:bg-gray-50">
+                <Pencil size={13} /> Editar projeto
+              </button>
+              <button
+                onClick={() => { setMenuAberto(false); onArquivar?.(project) }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left cursor-pointer hover:bg-red-50 border-t"
+                style={{ color: '#EF4444', borderTopColor: 'var(--color-gray-border)' }}>
+                <Archive size={13} /> Arquivar
+              </button>
+            </div>
+          )}
+        </div>
 
         {project.isActive && (
           <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-full z-10"
@@ -187,8 +223,72 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+
+function EditarProjetoModal({ projeto, onClose, onSalvo }: {
+  projeto: Project
+  onClose: () => void
+  onSalvo: (p: Project) => void
+}) {
+  const [form, setForm] = useState({
+    name: projeto.name,
+    niche: projeto.niche ?? '',
+    description: projeto.description ?? '',
+  })
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function salvar() {
+    setSalvando(true)
+    setErro(null)
+    try {
+      const atualizado = await api.patch<Project>(`/projects/${projeto.id}`, form)
+      onSalvo(atualizado)
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao salvar')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
+      <div className="w-full max-w-md rounded-2xl p-6" style={{ background: 'white' }}>
+        <h2 className="font-heading font-semibold text-lg">Editar projeto</h2>
+        <p className="text-xs mt-0.5 mb-4" style={{ color: 'var(--color-gray-text)' }}>
+          O nicho orienta o TrendDesk e o SearchDesk a trazerem conteúdo do assunto certo.
+        </p>
+
+        {erro && <div className="mb-3 p-3 rounded-xl text-xs" style={{ background: '#FEF2F2', color: '#B91C1C' }}>{erro}</div>}
+
+        <div className="space-y-3">
+          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            placeholder="Nome do projeto"
+            className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none" style={{ borderColor: 'var(--color-gray-border)' }} />
+          <input value={form.niche} onChange={e => setForm(f => ({ ...f, niche: e.target.value }))}
+            placeholder="Nicho (ex.: nutrição, free fire, odontologia)"
+            className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none" style={{ borderColor: 'var(--color-gray-border)' }} />
+          <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            placeholder="Descrição (opcional)" rows={3}
+            className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none resize-none" style={{ borderColor: 'var(--color-gray-border)' }} />
+        </div>
+
+        <div className="flex gap-2 mt-5">
+          <button onClick={salvar} disabled={!form.name.trim() || salvando}
+            className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer disabled:opacity-40"
+            style={{ background: 'var(--color-wine)' }}>
+            {salvando ? 'Salvando…' : 'Salvar'}
+          </button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-sm border cursor-pointer"
+            style={{ borderColor: 'var(--color-gray-border)' }}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ProjectsPage() {
-  const { projects, fetchProjects, arquivarProjeto } = useProjects()
+  const { projects, fetchProjects, arquivarProjeto, updateProject } = useProjects()
+  const [editando, setEditando] = useState<Project | null>(null)
   const [erroArquivar, setErroArquivar] = useState<string | null>(null)
 
   // arquivar some com o projeto da lista: confirmar evita o toque errado,
@@ -232,11 +332,20 @@ export default function ProjectsPage() {
 
       {/* 3 colunas fixas espremiam os cartões no tablet */}
       <motion.div variants={container} initial="initial" animate="animate" className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-        {projects.map(p => <ProjectCard key={p.id} project={p} onArquivar={pedirArquivamento} />)}
+        {projects.map(p => (
+          <ProjectCard key={p.id} project={p} onArquivar={pedirArquivamento} onEditar={setEditando} />
+        ))}
       </motion.div>
 
       <AnimatePresence>
         {showCreate && <CreateProjectModal onClose={() => setShowCreate(false)} />}
+        {editando && (
+          <EditarProjetoModal
+            projeto={editando}
+            onClose={() => setEditando(null)}
+            onSalvo={p => { updateProject(p.id, p); setEditando(null) }}
+          />
+        )}
       </AnimatePresence>
     </motion.div>
   )

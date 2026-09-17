@@ -52,14 +52,32 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 })
 
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
-  const member = await prisma.projectMember.findFirst({
+  // administrador do sistema não é membro dos projetos e tomaria 403 no
+  // próprio sistema — mesma armadilha do arquivamento e da visibilidade
+  const usuario = await prisma.user.findUnique({ where: { id: req.userId! }, select: { role: true } })
+  const mandaNoSistema = usuario?.role === 'OWNER' || usuario?.role === 'ADMIN'
+  const member = mandaNoSistema ? true : await prisma.projectMember.findFirst({
     where: { projectId: req.params.id as string, userId: req.userId, role: { in: ['OWNER', 'ADMIN'] } },
   })
-  if (!member) { res.status(403).json({ message: 'Sem permissão' }); return }
+  if (!member) { res.status(403).json({ message: 'Sem permissão para editar este projeto.' }); return }
+
+  // req.body ia cru para o Prisma: dava para escrever qualquer coluna do projeto
+  const schema = z.object({
+    name: z.string().min(1).optional(),
+    niche: z.string().optional(),
+    segment: z.string().optional(),
+    description: z.string().optional(),
+    primaryColor: z.string().optional(),
+    secondaryColor: z.string().optional(),
+    accentColor: z.string().optional(),
+    isActive: z.boolean().optional(),
+  })
+  const body = schema.safeParse(req.body)
+  if (!body.success) { res.status(400).json({ message: 'Dados inválidos', detalhes: body.error.issues }); return }
 
   const project = await prisma.project.update({
     where: { id: req.params.id as string },
-    data: req.body,
+    data: body.data,
   })
   res.json(project)
 })
