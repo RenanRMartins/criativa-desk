@@ -61,7 +61,8 @@ router.patch('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
   const user = await prisma.user.update({
     where: { id: req.userId },
     data: updates,
-    select: { id: true, name: true, email: true, role: true, plan: true, onboardingCompleted: true },
+    // avatar estava fora do select: a foto era salva e a tela não recebia de volta
+    select: { id: true, name: true, email: true, role: true, plan: true, avatar: true, onboardingCompleted: true },
   })
   res.json(user)
 })

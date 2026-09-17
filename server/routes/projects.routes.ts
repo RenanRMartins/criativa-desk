@@ -65,10 +65,14 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
 })
 
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
-  const member = await prisma.projectMember.findFirst({
+  // dono/administrador do sistema não é membro dos projetos, e sem esta porta
+  // tomaria 403 no próprio sistema — mesma armadilha da visibilidade
+  const usuario = await prisma.user.findUnique({ where: { id: req.userId! }, select: { role: true } })
+  const mandaNoSistema = usuario?.role === 'OWNER' || usuario?.role === 'ADMIN'
+  const member = mandaNoSistema ? true : await prisma.projectMember.findFirst({
     where: { projectId: req.params.id as string, userId: req.userId, role: 'OWNER' },
   })
-  if (!member) { res.status(403).json({ message: 'Sem permissão' }); return }
+  if (!member) { res.status(403).json({ message: 'Só o dono do projeto ou um administrador pode arquivar.' }); return }
 
   await prisma.project.update({ where: { id: req.params.id as string }, data: { isActive: false } })
   res.json({ message: 'Projeto desativado' })

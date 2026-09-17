@@ -58,7 +58,7 @@ const NOTIF_PREFS = [
 ]
 
 export default function SettingsPage() {
-  const { user } = useAuthStore()
+  const { user, updateUser } = useAuthStore()
   const { activeProject } = useProjectStore()
   const [activeTab, setActiveTab] = useState(() => {
     const params = new URLSearchParams(window.location.search)
@@ -77,6 +77,7 @@ export default function SettingsPage() {
   const [testes, setTestes] = useState<Record<string, TesteConta | null>>({})
   const [escolha, setEscolha] = useState<(EscolhaMeta & { id: string; marcados: string[] }) | null>(null)
   const [salvandoEscolha, setSalvandoEscolha] = useState(false)
+  const [enviandoFoto, setEnviandoFoto] = useState(false)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -167,6 +168,25 @@ export default function SettingsPage() {
       }))
     } finally {
       setTestando(null)
+    }
+  }
+
+  // o botão "Alterar foto" não tinha handler nenhum — clicar não fazia nada.
+  // O upload já existia e o User já tinha o campo; só faltava ligar os dois.
+  async function trocarFoto(arquivo: File) {
+    setEnviandoFoto(true)
+    try {
+      const form = new FormData()
+      form.append('file', arquivo)
+      const { url } = await api.upload<{ url: string }>('/upload', form)
+      const atualizado = await api.patch<{ avatar?: string }>('/auth/me', { avatar: url })
+      updateUser({ avatar: atualizado.avatar ?? url })
+      setOauthMessage({ type: 'success', text: 'Foto atualizada.' })
+    } catch (e) {
+      setOauthMessage({ type: 'error', text: e instanceof Error ? e.message : 'Falha ao enviar a foto' })
+    } finally {
+      setEnviandoFoto(false)
+      setTimeout(() => setOauthMessage(null), 5000)
     }
   }
 
@@ -284,7 +304,9 @@ export default function SettingsPage() {
               <div className="flex items-center gap-4 pb-5 border-b" style={{ borderBottomColor: 'var(--color-gray-border)' }}>
                 <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold text-white flex-shrink-0"
                   style={{ background: 'var(--color-wine)' }}>
-                  {user ? getInitials(user.name) : 'U'}
+                  {user?.avatar
+                    ? <img src={user.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                    : (user ? getInitials(user.name) : 'U')}
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold">{user?.name}</p>
@@ -294,10 +316,12 @@ export default function SettingsPage() {
                     {user?.plan ?? 'FREE'}
                   </span>
                 </div>
-                <button className="px-4 py-2 rounded-xl text-sm cursor-pointer border transition-colors hover:bg-gray-50"
-                  style={{ borderColor: 'var(--color-gray-border)' }}>
-                  Alterar foto
-                </button>
+                <label className="px-4 py-2 rounded-xl text-sm cursor-pointer border transition-colors hover:bg-gray-50 flex-shrink-0"
+                  style={{ borderColor: 'var(--color-gray-border)', opacity: enviandoFoto ? 0.5 : 1 }}>
+                  {enviandoFoto ? 'Enviando…' : 'Alterar foto'}
+                  <input type="file" accept="image/*" className="hidden" disabled={enviandoFoto}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) trocarFoto(f); e.target.value = '' }} />
+                </label>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

@@ -10,7 +10,7 @@ import type { Project } from '@/types'
 const container = { animate: { transition: { staggerChildren: 0.06 } } }
 const card = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0, transition: { duration: 0.2 } } }
 
-function ProjectCard({ project }: { project: Project }) {
+function ProjectCard({ project, onArquivar }: { project: Project; onArquivar?: (p: Project) => void }) {
   const navigate = useNavigate()
   const { setActiveProject } = useProjects()
 
@@ -56,10 +56,13 @@ function ProjectCard({ project }: { project: Project }) {
           </div>
         </div>
 
+        {/* era opacity-0 até o hover: em tablet, onde não existe hover, o botão
+            ficava invisível. Agora some só onde há mouse de verdade. */}
         <button
-          className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
+          className="absolute top-3 right-3 p-1.5 rounded-lg transition-opacity cursor-pointer z-10 [@media(pointer:fine)]:opacity-0 group-hover:opacity-100"
           style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(4px)' }}
-          onClick={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onArquivar?.(project) }}
+          title="Arquivar projeto"
         >
           <MoreHorizontal size={14} color="white" />
         </button>
@@ -185,7 +188,16 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function ProjectsPage() {
-  const { projects, fetchProjects } = useProjects()
+  const { projects, fetchProjects, arquivarProjeto } = useProjects()
+  const [erroArquivar, setErroArquivar] = useState<string | null>(null)
+
+  // arquivar some com o projeto da lista: confirmar evita o toque errado,
+  // sobretudo em tablet onde os alvos ficam próximos
+  async function pedirArquivamento(p: Project) {
+    if (!confirm(`Arquivar "${p.name}"? Ele sai da lista, mas os posts e mídias continuam guardados.`)) return
+    try { await arquivarProjeto(p.id) }
+    catch (e) { setErroArquivar(e instanceof Error ? e.message : 'Falha ao arquivar') }
+  }
   const [showCreate, setShowCreate] = useState(false)
 
   useEffect(() => {
@@ -214,8 +226,13 @@ export default function ProjectsPage() {
         </motion.button>
       </div>
 
-      <motion.div variants={container} initial="initial" animate="animate" className="grid grid-cols-3 gap-5">
-        {projects.map(p => <ProjectCard key={p.id} project={p} />)}
+      {erroArquivar && (
+        <div className="p-3 rounded-xl text-sm" style={{ background: '#FEF2F2', color: '#B91C1C' }}>{erroArquivar}</div>
+      )}
+
+      {/* 3 colunas fixas espremiam os cartões no tablet */}
+      <motion.div variants={container} initial="initial" animate="animate" className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        {projects.map(p => <ProjectCard key={p.id} project={p} onArquivar={pedirArquivamento} />)}
       </motion.div>
 
       <AnimatePresence>

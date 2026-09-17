@@ -48,5 +48,14 @@ export function useProjects() {
     return data
   }, [token, projects, setProjects])
 
-  return { projects, activeProject, setActiveProject, updateProject, fetchProjects, createProject }
+  // Arquiva (isActive: false) — o backend não apaga de verdade, e é melhor
+  // assim: projeto carrega posts, mídias e histórico do cliente.
+  const arquivarProjeto = useCallback(async (id: string) => {
+    if (!isDemo(token)) await api.delete(`/projects/${id}`)
+    const restantes = projects.filter(p => p.id !== id)
+    setProjects(restantes)
+    if (activeProject?.id === id) setActiveProject(restantes[0] ?? null)
+  }, [token, projects, setProjects, activeProject, setActiveProject])
+
+  return { projects, activeProject, setActiveProject, updateProject, fetchProjects, createProject, arquivarProjeto }
 }

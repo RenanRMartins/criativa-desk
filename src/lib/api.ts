@@ -47,8 +47,14 @@ export const api = {
     const headers: Record<string, string> = {}
     if (token) headers['Authorization'] = `Bearer ${token}`
     return fetch(`${BASE_URL}${path}`, { method: 'POST', headers, body: formData })
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      .then(async res => {
+        // mesmo motivo do request(): status sozinho não diz o que houve
+        if (!res.ok) {
+          const corpo = await res.text().catch(() => '')
+          let mensagem = ''
+          try { mensagem = (JSON.parse(corpo) as { message?: string }).message ?? '' } catch { /* não é JSON */ }
+          throw new Error(mensagem || `HTTP ${res.status} em ${path}`)
+        }
         return res.json() as Promise<T>
       })
   },
