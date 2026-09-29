@@ -20,7 +20,10 @@ export default function LoginPage() {
   const { signIn } = useAuth()
   const navigate = useNavigate()
   const [showPw, setShowPw] = useState(false)
-  const [apiError, setApiError] = useState('')
+  // voltar ao login sem explicação parece que o sistema caiu
+  const [apiError, setApiError] = useState(() =>
+    new URLSearchParams(window.location.search).has('expirou')
+      ? 'Sua sessão expirou. Entre de novo para continuar.' : '')
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(schema),

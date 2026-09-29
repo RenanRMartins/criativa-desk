@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/store/authStore'
+
 // exportado porque o CopyDesk usa fetch cru (streaming SSE) e precisa da mesma
 // base — com caminho relativo ele batia na Vercel em produção e voltava 405
 export const BASE_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api'
@@ -13,6 +15,14 @@ function getToken(): string | null {
   }
 }
 
+// Token vencido: sem isto o app seguia "logado" com credencial morta, toda
+// tela falhava e o menu sumia. Sai e volta ao login, uma vez, para todo mundo.
+function sessaoExpirou(res: Response) {
+  if (res.status !== 401 || !getToken()) return
+  useAuthStore.getState().logout()
+  if (!location.pathname.startsWith('/login')) location.assign('/login?expirou=1')
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken()
   const headers: Record<string, string> = {
@@ -22,6 +32,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  sessaoExpirou(res)
   if (!res.ok) {
     // "Request failed" sozinho escondia até o código HTTP: quando o servidor
     // devolve página de erro em vez de JSON, era isso que chegava na tela.
@@ -48,6 +59,7 @@ export const api = {
     if (token) headers['Authorization'] = `Bearer ${token}`
     return fetch(`${BASE_URL}${path}`, { method: 'POST', headers, body: formData })
       .then(async res => {
+        sessaoExpirou(res)
         // mesmo motivo do request(): status sozinho não diz o que houve
         if (!res.ok) {
           const corpo = await res.text().catch(() => '')

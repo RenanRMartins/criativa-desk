@@ -15,6 +15,7 @@ export function usePermissoes() {
   const { activeProject } = useProjectStore()
   const [permissoes, setPermissoes] = useState<string[]>([])
   const [carregando, setCarregando] = useState(true)
+  const [falhou, setFalhou] = useState(false)
 
   const ehDemo = !token || token.startsWith('demo-token')
 
@@ -28,8 +29,10 @@ export function usePermissoes() {
     }
     setCarregando(true)
     api.get<{ permissoes: string[] }>(`/acessos/minhas?projectId=${activeProject.id}`)
-      .then(r => setPermissoes(r.permissoes))
-      .catch(() => setPermissoes([]))
+      .then(r => { setPermissoes(r.permissoes); setFalhou(false) })
+      // falha de rede não é "sem permissão": esconder o menu inteiro por um
+      // tropeço deixava a pessoa sem saída. Quem barra de verdade é o servidor.
+      .catch(() => setFalhou(true))
       .finally(() => setCarregando(false))
   }, [activeProject?.id, token, ehDemo])
 
@@ -38,6 +41,6 @@ export function usePermissoes() {
     carregando,
     // enquanto carrega, ou sem servidor, não escondemos nada: piscar o menu a
     // cada troca de projeto é pior que mostrar um item que dará 403 ao abrir
-    pode: (chave: string) => ehDemo || carregando || permissoes.includes(chave),
+    pode: (chave: string) => ehDemo || carregando || falhou || permissoes.includes(chave),
   }
 }
