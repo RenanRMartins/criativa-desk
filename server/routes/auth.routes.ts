@@ -7,7 +7,7 @@ import { authMiddleware, type AuthRequest } from '../middleware/auth.middleware'
 
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET ?? 'criativa-desk-secret-dev'
-const JWT_EXPIRES = '7d'
+const JWT_EXPIRES = '30d'
 
 function makeToken(userId: string, role: string) {
   return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn: JWT_EXPIRES })
